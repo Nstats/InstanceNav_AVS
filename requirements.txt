@@ -1,0 +1,20 @@
+transformers==4.30.0
+pslpython==2.3.3
+yacs==0.1.8
+open3d
+ollama
+scikit-image
+scikit-learn
+scikit-fmm
+pandas
+omegaconf
+nltk
+inflect
+einops
+prettytable
+ftfy
+# Direct Qwen API mode (no local LLM/VLM checkpoint required)
+requests>=2.28
+python-dotenv>=1.0
+Flask>=2.2
+Pillow>=9

@@ -1,0 +1,14 @@
+{
+  "data/models/sam_vit_h_4b8939.pth": {
+    "bytes": 2564550879,
+    "sha256": "a7bf3b02f3ebf1267aba913ff637d9a2d5c33d3173bb679e46d9f338c26f262e"
+  },
+  "data/models/groundingdino_swint_ogc.pth": {
+    "bytes": 693997677,
+    "sha256": "3b3ca2563c77c69f651d7bd133e97139c186df06231157a64c507099c52bc799"
+  },
+  "GLIP/MODEL/glip_large_model.pth": {
+    "bytes": 6896153761,
+    "sha256": "dcb0178264b3193901a11560aa7f31b05821a5bf15225eeb0eeebbedaaa27791"
+  }
+}

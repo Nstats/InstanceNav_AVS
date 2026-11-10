@@ -1,0 +1,882 @@
+{
+ "_provenance": "Computed from commit 01af75a (before CoIN-Bench support) by tests/instancenav_characterization_support.all_fingerprints().",
+ "categories": {
+  "glip/hm3d_ovon": {
+   "all": [
+    "cabinet",
+    "heater",
+    "window",
+    "treadmill",
+    "exercise machine",
+    "staircase"
+   ],
+   "captions": "cabinet. heater. window. treadmill. exercise machine. staircase.",
+   "origin": [
+    "cabinet"
+   ],
+   "projection": [
+    [
+     "0",
+     "cabinet"
+    ]
+   ]
+  },
+  "glip/hssd": {
+   "all": [
+    "chair",
+    "bed",
+    "plant",
+    "toilet",
+    "tv_monitor",
+    "sofa",
+    "heater",
+    "window",
+    "treadmill",
+    "exercise machine",
+    "staircase"
+   ],
+   "captions": "chair. bed. plant. toilet. tv_monitor. sofa. heater. window. treadmill. exercise machine. staircase.",
+   "origin": [
+    "chair",
+    "bed",
+    "plant",
+    "toilet",
+    "tv_monitor",
+    "sofa"
+   ],
+   "projection": [
+    [
+     "0",
+     "chair"
+    ],
+    [
+     "1",
+     "bed"
+    ],
+    [
+     "2",
+     "plant"
+    ],
+    [
+     "3",
+     "toilet"
+    ],
+    [
+     "4",
+     "tv_monitor"
+    ],
+    [
+     "5",
+     "sofa"
+    ]
+   ]
+  },
+  "glip/instancenav": {
+   "all": [
+    "chair",
+    "bed",
+    "plant",
+    "toilet",
+    "tv_monitor",
+    "sofa",
+    "heater",
+    "window",
+    "treadmill",
+    "exercise machine",
+    "staircase"
+   ],
+   "captions": "chair. bed. plant. toilet. tv_monitor. sofa. heater. window. treadmill. exercise machine. staircase.",
+   "origin": [
+    "chair",
+    "bed",
+    "plant",
+    "toilet",
+    "tv_monitor",
+    "sofa"
+   ],
+   "projection": [
+    [
+     "0",
+     "chair"
+    ],
+    [
+     "1",
+     "bed"
+    ],
+    [
+     "2",
+     "plant"
+    ],
+    [
+     "3",
+     "toilet"
+    ],
+    [
+     "4",
+     "tv_monitor"
+    ],
+    [
+     "5",
+     "sofa"
+    ]
+   ]
+  },
+  "hm3d": {
+   "categories": "raise:ValueError",
+   "categories_cabinet": "raise:ValueError",
+   "count": "raise:ValueError",
+   "detection": "raise:ValueError",
+   "episode_goals": "raise:ValueError",
+   "small": "raise:ValueError",
+   "threshold/bed": "raise:ValueError",
+   "threshold/cabinet": "raise:ValueError",
+   "threshold/chair": "raise:ValueError",
+   "threshold/couch": "raise:ValueError",
+   "threshold/plant": "raise:ValueError",
+   "threshold/potted_plant": "raise:ValueError",
+   "threshold/sofa": "raise:ValueError",
+   "threshold/toilet": "raise:ValueError",
+   "threshold/tv": "raise:ValueError",
+   "threshold/tv_monitor": "raise:ValueError",
+   "to_dataset/bed": "raise:ValueError",
+   "to_dataset/cabinet": "raise:ValueError",
+   "to_dataset/chair": "raise:ValueError",
+   "to_dataset/couch": "raise:ValueError",
+   "to_dataset/plant": "raise:ValueError",
+   "to_dataset/potted_plant": "raise:ValueError",
+   "to_dataset/sofa": "raise:ValueError",
+   "to_dataset/toilet": "raise:ValueError",
+   "to_dataset/tv": "raise:ValueError",
+   "to_dataset/tv_monitor": "raise:ValueError",
+   "to_unified/bed": "raise:ValueError",
+   "to_unified/cabinet": "raise:ValueError",
+   "to_unified/chair": "raise:ValueError",
+   "to_unified/couch": "raise:ValueError",
+   "to_unified/plant": "raise:ValueError",
+   "to_unified/potted_plant": "raise:ValueError",
+   "to_unified/sofa": "raise:ValueError",
+   "to_unified/toilet": "raise:ValueError",
+   "to_unified/tv": "raise:ValueError",
+   "to_unified/tv_monitor": "raise:ValueError"
+  },
+  "hm3d_ovon": {
+   "categories": [],
+   "categories_cabinet": [
+    "cabinet"
+   ],
+   "count": 1,
+   "detection": [
+    "cabinet",
+    "heater",
+    "window",
+    "treadmill",
+    "exercise machine",
+    "staircase"
+   ],
+   "episode_goals": true,
+   "small": [],
+   "threshold/bed": 3,
+   "threshold/cabinet": 3,
+   "threshold/chair": 3,
+   "threshold/couch": 3,
+   "threshold/plant": 3,
+   "threshold/potted_plant": 3,
+   "threshold/sofa": 3,
+   "threshold/toilet": 3,
+   "threshold/tv": 3,
+   "threshold/tv_monitor": 3,
+   "to_dataset/bed": "bed",
+   "to_dataset/cabinet": "cabinet",
+   "to_dataset/chair": "chair",
+   "to_dataset/couch": "couch",
+   "to_dataset/plant": "plant",
+   "to_dataset/potted_plant": "potted_plant",
+   "to_dataset/sofa": "sofa",
+   "to_dataset/toilet": "toilet",
+   "to_dataset/tv": "tv",
+   "to_dataset/tv_monitor": "tv_monitor",
+   "to_unified/bed": "bed",
+   "to_unified/cabinet": "cabinet",
+   "to_unified/chair": "chair",
+   "to_unified/couch": "couch",
+   "to_unified/plant": "plant",
+   "to_unified/potted_plant": "potted_plant",
+   "to_unified/sofa": "sofa",
+   "to_unified/toilet": "toilet",
+   "to_unified/tv": "tv",
+   "to_unified/tv_monitor": "tv_monitor"
+  },
+  "hssd": {
+   "categories": [
+    "chair",
+    "bed",
+    "plant",
+    "toilet",
+    "tv_monitor",
+    "sofa"
+   ],
+   "categories_cabinet": [
+    "chair",
+    "bed",
+    "plant",
+    "toilet",
+    "tv_monitor",
+    "sofa"
+   ],
+   "count": 6,
+   "detection": [
+    "chair",
+    "bed",
+    "plant",
+    "toilet",
+    "tv_monitor",
+    "sofa",
+    "heater",
+    "window",
+    "treadmill",
+    "exercise machine",
+    "staircase"
+   ],
+   "episode_goals": false,
+   "small": [
+    "plant",
+    "tv_monitor"
+   ],
+   "threshold/bed": 5,
+   "threshold/cabinet": 3,
+   "threshold/chair": 5,
+   "threshold/couch": 4,
+   "threshold/plant": 3,
+   "threshold/potted_plant": 3,
+   "threshold/sofa": 4,
+   "threshold/toilet": 2,
+   "threshold/tv": 2,
+   "threshold/tv_monitor": 2,
+   "to_dataset/bed": "bed",
+   "to_dataset/cabinet": "cabinet",
+   "to_dataset/chair": "chair",
+   "to_dataset/couch": "couch",
+   "to_dataset/plant": "potted_plant",
+   "to_dataset/potted_plant": "potted_plant",
+   "to_dataset/sofa": "couch",
+   "to_dataset/toilet": "toilet",
+   "to_dataset/tv": "tv",
+   "to_dataset/tv_monitor": "tv",
+   "to_unified/bed": "bed",
+   "to_unified/cabinet": "cabinet",
+   "to_unified/chair": "chair",
+   "to_unified/couch": "sofa",
+   "to_unified/plant": "plant",
+   "to_unified/potted_plant": "plant",
+   "to_unified/sofa": "sofa",
+   "to_unified/toilet": "toilet",
+   "to_unified/tv": "tv_monitor",
+   "to_unified/tv_monitor": "tv_monitor"
+  },
+  "instancenav": {
+   "categories": [
+    "chair",
+    "bed",
+    "plant",
+    "toilet",
+    "tv_monitor",
+    "sofa"
+   ],
+   "categories_cabinet": [
+    "chair",
+    "bed",
+    "plant",
+    "toilet",
+    "tv_monitor",
+    "sofa"
+   ],
+   "count": 6,
+   "detection": [
+    "chair",
+    "bed",
+    "plant",
+    "toilet",
+    "tv_monitor",
+    "sofa",
+    "heater",
+    "window",
+    "treadmill",
+    "exercise machine",
+    "staircase"
+   ],
+   "episode_goals": false,
+   "small": [
+    "plant",
+    "tv_monitor"
+   ],
+   "threshold/bed": 5,
+   "threshold/cabinet": 3,
+   "threshold/chair": 5,
+   "threshold/couch": 4,
+   "threshold/plant": 3,
+   "threshold/potted_plant": 3,
+   "threshold/sofa": 4,
+   "threshold/toilet": 2,
+   "threshold/tv": 2,
+   "threshold/tv_monitor": 2,
+   "to_dataset/bed": "bed",
+   "to_dataset/cabinet": "cabinet",
+   "to_dataset/chair": "chair",
+   "to_dataset/couch": "couch",
+   "to_dataset/plant": "potted_plant",
+   "to_dataset/potted_plant": "potted_plant",
+   "to_dataset/sofa": "couch",
+   "to_dataset/toilet": "toilet",
+   "to_dataset/tv": "tv",
+   "to_dataset/tv_monitor": "tv",
+   "to_unified/bed": "bed",
+   "to_unified/cabinet": "cabinet",
+   "to_unified/chair": "chair",
+   "to_unified/couch": "sofa",
+   "to_unified/plant": "plant",
+   "to_unified/potted_plant": "plant",
+   "to_unified/sofa": "sofa",
+   "to_unified/toilet": "toilet",
+   "to_unified/tv": "tv_monitor",
+   "to_unified/tv_monitor": "tv_monitor"
+  }
+ },
+ "fallback_depth": {
+  "corner": 150.0,
+  "in_box": 3.0,
+  "valid_start": 3.0
+ },
+ "gates": {
+  "hm3d_ovon/collect_and_post": {
+   "_evidence_tracking_enabled": false,
+   "_post_check_enabled": false,
+   "collect_only_enabled": false,
+   "defer_goal_lock": false,
+   "goal_threshold": 5,
+   "preserve_evidence_on_recovery_enabled": false
+  },
+  "hm3d_ovon/collect_only": {
+   "_evidence_tracking_enabled": false,
+   "_post_check_enabled": false,
+   "collect_only_enabled": false,
+   "defer_goal_lock": false,
+   "goal_threshold": 5,
+   "preserve_evidence_on_recovery_enabled": false
+  },
+  "hm3d_ovon/confirmation_off": {
+   "_evidence_tracking_enabled": false,
+   "_post_check_enabled": false,
+   "collect_only_enabled": false,
+   "defer_goal_lock": false,
+   "goal_threshold": 5,
+   "preserve_evidence_on_recovery_enabled": false
+  },
+  "hm3d_ovon/default": {
+   "_evidence_tracking_enabled": false,
+   "_post_check_enabled": false,
+   "collect_only_enabled": false,
+   "defer_goal_lock": false,
+   "goal_threshold": 5,
+   "preserve_evidence_on_recovery_enabled": false
+  },
+  "hm3d_ovon/post_check": {
+   "_evidence_tracking_enabled": false,
+   "_post_check_enabled": false,
+   "collect_only_enabled": false,
+   "defer_goal_lock": false,
+   "goal_threshold": 5,
+   "preserve_evidence_on_recovery_enabled": false
+  },
+  "hm3d_ovon/preserve": {
+   "_evidence_tracking_enabled": false,
+   "_post_check_enabled": false,
+   "collect_only_enabled": false,
+   "defer_goal_lock": false,
+   "goal_threshold": 5,
+   "preserve_evidence_on_recovery_enabled": false
+  },
+  "hssd/collect_and_post": {
+   "_evidence_tracking_enabled": false,
+   "_post_check_enabled": false,
+   "collect_only_enabled": false,
+   "defer_goal_lock": false,
+   "goal_threshold": 5,
+   "preserve_evidence_on_recovery_enabled": false
+  },
+  "hssd/collect_only": {
+   "_evidence_tracking_enabled": false,
+   "_post_check_enabled": false,
+   "collect_only_enabled": false,
+   "defer_goal_lock": false,
+   "goal_threshold": 5,
+   "preserve_evidence_on_recovery_enabled": false
+  },
+  "hssd/confirmation_off": {
+   "_evidence_tracking_enabled": false,
+   "_post_check_enabled": false,
+   "collect_only_enabled": false,
+   "defer_goal_lock": false,
+   "goal_threshold": 5,
+   "preserve_evidence_on_recovery_enabled": false
+  },
+  "hssd/default": {
+   "_evidence_tracking_enabled": false,
+   "_post_check_enabled": false,
+   "collect_only_enabled": false,
+   "defer_goal_lock": false,
+   "goal_threshold": 5,
+   "preserve_evidence_on_recovery_enabled": false
+  },
+  "hssd/post_check": {
+   "_evidence_tracking_enabled": false,
+   "_post_check_enabled": false,
+   "collect_only_enabled": false,
+   "defer_goal_lock": false,
+   "goal_threshold": 5,
+   "preserve_evidence_on_recovery_enabled": false
+  },
+  "hssd/preserve": {
+   "_evidence_tracking_enabled": false,
+   "_post_check_enabled": false,
+   "collect_only_enabled": false,
+   "defer_goal_lock": false,
+   "goal_threshold": 5,
+   "preserve_evidence_on_recovery_enabled": false
+  },
+  "instancenav/collect_and_post": {
+   "_evidence_tracking_enabled": true,
+   "_post_check_enabled": true,
+   "collect_only_enabled": "raise:ValueError",
+   "defer_goal_lock": "raise:ValueError",
+   "goal_threshold": 1,
+   "preserve_evidence_on_recovery_enabled": false
+  },
+  "instancenav/collect_only": {
+   "_evidence_tracking_enabled": true,
+   "_post_check_enabled": false,
+   "collect_only_enabled": true,
+   "defer_goal_lock": true,
+   "goal_threshold": 1,
+   "preserve_evidence_on_recovery_enabled": false
+  },
+  "instancenav/confirmation_off": {
+   "_evidence_tracking_enabled": false,
+   "_post_check_enabled": false,
+   "collect_only_enabled": false,
+   "defer_goal_lock": false,
+   "goal_threshold": 5,
+   "preserve_evidence_on_recovery_enabled": false
+  },
+  "instancenav/default": {
+   "_evidence_tracking_enabled": true,
+   "_post_check_enabled": false,
+   "collect_only_enabled": false,
+   "defer_goal_lock": false,
+   "goal_threshold": 1,
+   "preserve_evidence_on_recovery_enabled": false
+  },
+  "instancenav/post_check": {
+   "_evidence_tracking_enabled": true,
+   "_post_check_enabled": true,
+   "collect_only_enabled": false,
+   "defer_goal_lock": false,
+   "goal_threshold": 1,
+   "preserve_evidence_on_recovery_enabled": false
+  },
+  "instancenav/preserve": {
+   "_evidence_tracking_enabled": true,
+   "_post_check_enabled": false,
+   "collect_only_enabled": false,
+   "defer_goal_lock": false,
+   "goal_threshold": 1,
+   "preserve_evidence_on_recovery_enabled": true
+  },
+  "mp3d/collect_and_post": {
+   "_evidence_tracking_enabled": false,
+   "_post_check_enabled": false,
+   "collect_only_enabled": false,
+   "defer_goal_lock": false,
+   "goal_threshold": 5,
+   "preserve_evidence_on_recovery_enabled": false
+  },
+  "mp3d/collect_only": {
+   "_evidence_tracking_enabled": false,
+   "_post_check_enabled": false,
+   "collect_only_enabled": false,
+   "defer_goal_lock": false,
+   "goal_threshold": 5,
+   "preserve_evidence_on_recovery_enabled": false
+  },
+  "mp3d/confirmation_off": {
+   "_evidence_tracking_enabled": false,
+   "_post_check_enabled": false,
+   "collect_only_enabled": false,
+   "defer_goal_lock": false,
+   "goal_threshold": 5,
+   "preserve_evidence_on_recovery_enabled": false
+  },
+  "mp3d/default": {
+   "_evidence_tracking_enabled": false,
+   "_post_check_enabled": false,
+   "collect_only_enabled": false,
+   "defer_goal_lock": false,
+   "goal_threshold": 5,
+   "preserve_evidence_on_recovery_enabled": false
+  },
+  "mp3d/post_check": {
+   "_evidence_tracking_enabled": false,
+   "_post_check_enabled": false,
+   "collect_only_enabled": false,
+   "defer_goal_lock": false,
+   "goal_threshold": 5,
+   "preserve_evidence_on_recovery_enabled": false
+  },
+  "mp3d/preserve": {
+   "_evidence_tracking_enabled": false,
+   "_post_check_enabled": false,
+   "collect_only_enabled": false,
+   "defer_goal_lock": false,
+   "goal_threshold": 5,
+   "preserve_evidence_on_recovery_enabled": false
+  }
+ },
+ "map_depth_key": [
+  [
+   [
+    4,
+    5
+   ],
+   40.0
+  ],
+  [
+   [
+    4,
+    5
+   ],
+   40.0
+  ]
+ ],
+ "mapping": {
+  "free": {
+   "agent_height": 88.0,
+   "camera_matrix": [
+    319.5,
+    239.5,
+    388.19104131
+   ],
+   "depth_cm": [
+    50.0,
+    1000.0
+   ],
+   "fov": 79.0,
+   "ramp_0": [
+    [
+     1,
+     1,
+     800,
+     800
+    ],
+    0,
+    "f8c784aa6b57396e"
+   ],
+   "ramp_30": [
+    [
+     1,
+     1,
+     800,
+     800
+    ],
+    814,
+    "6938c709cd46dc5c"
+   ],
+   "screen": [
+    480,
+    640
+   ],
+   "slope_0": [
+    [
+     1,
+     1,
+     800,
+     800
+    ],
+    195,
+    "0543d5410c1d815e"
+   ],
+   "slope_30": [
+    [
+     1,
+     1,
+     800,
+     800
+    ],
+    1956,
+    "ece092a160e28f85"
+   ],
+   "wall_0": [
+    [
+     1,
+     1,
+     800,
+     800
+    ],
+    0,
+    "f8c784aa6b57396e"
+   ],
+   "wall_30": [
+    [
+     1,
+     1,
+     800,
+     800
+    ],
+    306,
+    "77db3744d713aced"
+   ],
+   "z_consider": [
+    -150.0,
+    10.0
+   ]
+  },
+  "room": {
+   "agent_height": 88.0,
+   "camera_matrix": [
+    319.5,
+    239.5,
+    388.19104131
+   ],
+   "depth_cm": [
+    50.0,
+    1000.0
+   ],
+   "fov": 79.0,
+   "ramp_0": [
+    [
+     1,
+     9,
+     800,
+     800
+    ],
+    0,
+    "943696a366338cdf"
+   ],
+   "ramp_30": [
+    [
+     1,
+     9,
+     800,
+     800
+    ],
+    44,
+    "a81a8364ace544fd"
+   ],
+   "screen": [
+    480,
+    640
+   ],
+   "slope_0": [
+    [
+     1,
+     9,
+     800,
+     800
+    ],
+    660,
+    "9135ea8211b664cf"
+   ],
+   "slope_30": [
+    [
+     1,
+     9,
+     800,
+     800
+    ],
+    329,
+    "9083be120e040bb3"
+   ],
+   "wall_0": [
+    [
+     1,
+     9,
+     800,
+     800
+    ],
+    0,
+    "943696a366338cdf"
+   ],
+   "wall_30": [
+    [
+     1,
+     9,
+     800,
+     800
+    ],
+    89,
+    "803d275c0a504f8c"
+   ],
+   "z_consider": [
+    -10.0,
+    200.0
+   ]
+  },
+  "sem": {
+   "agent_height": 88.0,
+   "camera_matrix": [
+    319.5,
+    239.5,
+    388.19104131
+   ],
+   "depth_cm": [
+    50.0,
+    1000.0
+   ],
+   "fov": 79.0,
+   "ramp_0": [
+    [
+     1,
+     1,
+     800,
+     800
+    ],
+    0,
+    "f8c784aa6b57396e"
+   ],
+   "ramp_30": [
+    [
+     1,
+     1,
+     800,
+     800
+    ],
+    117,
+    "0a5656a2cd42422d"
+   ],
+   "screen": [
+    480,
+    640
+   ],
+   "slope_0": [
+    [
+     1,
+     1,
+     800,
+     800
+    ],
+    1175,
+    "e48a2d4dd5045196"
+   ],
+   "slope_30": [
+    [
+     1,
+     1,
+     800,
+     800
+    ],
+    1609,
+    "91c4be7784c49c8b"
+   ],
+   "wall_0": [
+    [
+     1,
+     1,
+     800,
+     800
+    ],
+    0,
+    "f8c784aa6b57396e"
+   ],
+   "wall_30": [
+    [
+     1,
+     1,
+     800,
+     800
+    ],
+    354,
+    "fff06a9b5d411fea"
+   ],
+   "z_consider": [
+    20.0,
+    139.0
+   ]
+  }
+ },
+ "node_space": {
+  "None/cabinet": [
+   "chair. table. bed.",
+   1
+  ],
+  "hm3d_ovon/cabinet": [
+   "chair. table. bed. cabinet.",
+   1
+  ],
+  "hm3d_ovon/chair": [
+   "chair. table. bed.",
+   4
+  ],
+  "hssd/cabinet": [
+   "chair. table. bed.",
+   1
+  ],
+  "instancenav/chair": [
+   "chair. table. bed.",
+   4
+  ]
+ },
+ "stop_rule": {
+  "adjacent": [
+   10.0,
+   10.0,
+   true,
+   true
+  ],
+  "behind_wall": [
+   35.0,
+   21.0,
+   false,
+   false
+  ],
+  "beyond_25_cells": [
+   15.0,
+   10.0,
+   false,
+   false
+  ],
+  "far_open": [
+   15.0,
+   10.0,
+   false,
+   false
+  ],
+  "frontier_goal": [
+   15.0,
+   10.0,
+   false,
+   true
+  ],
+  "goal_in_wall": [
+   30.0,
+   23.0,
+   false,
+   true
+  ],
+  "multi_goal": [
+   15.0,
+   10.0,
+   false,
+   false
+  ],
+  "no_stop_distance": [
+   15.0,
+   10.0,
+   false,
+   true
+  ],
+  "within_15_cells": [
+   15.0,
+   10.0,
+   false,
+   true
+  ]
+ }
+}

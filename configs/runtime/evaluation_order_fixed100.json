@@ -1,0 +1,602 @@
+[
+  {
+    "index": 0,
+    "episode_id": "416",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00878-XB4GS9ShBRE/XB4GS9ShBRE.basis.glb",
+    "goal_object_id": "345"
+  },
+  {
+    "index": 1,
+    "episode_id": "635",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00876-mv2HUxq3B53/mv2HUxq3B53.basis.glb",
+    "goal_object_id": "72"
+  },
+  {
+    "index": 2,
+    "episode_id": "656",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00876-mv2HUxq3B53/mv2HUxq3B53.basis.glb",
+    "goal_object_id": "556"
+  },
+  {
+    "index": 3,
+    "episode_id": "651",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00876-mv2HUxq3B53/mv2HUxq3B53.basis.glb",
+    "goal_object_id": "365"
+  },
+  {
+    "index": 4,
+    "episode_id": "882",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00831-yr17PDCnDDW/yr17PDCnDDW.basis.glb",
+    "goal_object_id": "276"
+  },
+  {
+    "index": 5,
+    "episode_id": "903",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00831-yr17PDCnDDW/yr17PDCnDDW.basis.glb",
+    "goal_object_id": "398"
+  },
+  {
+    "index": 6,
+    "episode_id": "922",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00831-yr17PDCnDDW/yr17PDCnDDW.basis.glb",
+    "goal_object_id": "518"
+  },
+  {
+    "index": 7,
+    "episode_id": "930",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00831-yr17PDCnDDW/yr17PDCnDDW.basis.glb",
+    "goal_object_id": "523"
+  },
+  {
+    "index": 8,
+    "episode_id": "908",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00831-yr17PDCnDDW/yr17PDCnDDW.basis.glb",
+    "goal_object_id": "426"
+  },
+  {
+    "index": 9,
+    "episode_id": "931",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00831-yr17PDCnDDW/yr17PDCnDDW.basis.glb",
+    "goal_object_id": "524"
+  },
+  {
+    "index": 10,
+    "episode_id": "881",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00831-yr17PDCnDDW/yr17PDCnDDW.basis.glb",
+    "goal_object_id": "266"
+  },
+  {
+    "index": 11,
+    "episode_id": "907",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00831-yr17PDCnDDW/yr17PDCnDDW.basis.glb",
+    "goal_object_id": "426"
+  },
+  {
+    "index": 12,
+    "episode_id": "878",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00831-yr17PDCnDDW/yr17PDCnDDW.basis.glb",
+    "goal_object_id": "239"
+  },
+  {
+    "index": 13,
+    "episode_id": "893",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00831-yr17PDCnDDW/yr17PDCnDDW.basis.glb",
+    "goal_object_id": "308"
+  },
+  {
+    "index": 14,
+    "episode_id": "860",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00831-yr17PDCnDDW/yr17PDCnDDW.basis.glb",
+    "goal_object_id": "39"
+  },
+  {
+    "index": 15,
+    "episode_id": "898",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00831-yr17PDCnDDW/yr17PDCnDDW.basis.glb",
+    "goal_object_id": "364"
+  },
+  {
+    "index": 16,
+    "episode_id": "271",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00862-LT9Jq6dN3Ea/LT9Jq6dN3Ea.basis.glb",
+    "goal_object_id": "548"
+  },
+  {
+    "index": 17,
+    "episode_id": "259",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00862-LT9Jq6dN3Ea/LT9Jq6dN3Ea.basis.glb",
+    "goal_object_id": "325"
+  },
+  {
+    "index": 18,
+    "episode_id": "252",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00862-LT9Jq6dN3Ea/LT9Jq6dN3Ea.basis.glb",
+    "goal_object_id": "301"
+  },
+  {
+    "index": 19,
+    "episode_id": "231",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00862-LT9Jq6dN3Ea/LT9Jq6dN3Ea.basis.glb",
+    "goal_object_id": "27"
+  },
+  {
+    "index": 20,
+    "episode_id": "269",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00862-LT9Jq6dN3Ea/LT9Jq6dN3Ea.basis.glb",
+    "goal_object_id": "443"
+  },
+  {
+    "index": 21,
+    "episode_id": "242",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00862-LT9Jq6dN3Ea/LT9Jq6dN3Ea.basis.glb",
+    "goal_object_id": "61"
+  },
+  {
+    "index": 22,
+    "episode_id": "234",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00862-LT9Jq6dN3Ea/LT9Jq6dN3Ea.basis.glb",
+    "goal_object_id": "35"
+  },
+  {
+    "index": 23,
+    "episode_id": "266",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00862-LT9Jq6dN3Ea/LT9Jq6dN3Ea.basis.glb",
+    "goal_object_id": "420"
+  },
+  {
+    "index": 24,
+    "episode_id": "265",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00862-LT9Jq6dN3Ea/LT9Jq6dN3Ea.basis.glb",
+    "goal_object_id": "370"
+  },
+  {
+    "index": 25,
+    "episode_id": "274",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00862-LT9Jq6dN3Ea/LT9Jq6dN3Ea.basis.glb",
+    "goal_object_id": "635"
+  },
+  {
+    "index": 26,
+    "episode_id": "190",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00824-Dd4bFSTQ8gi/Dd4bFSTQ8gi.basis.glb",
+    "goal_object_id": "349"
+  },
+  {
+    "index": 27,
+    "episode_id": "186",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00824-Dd4bFSTQ8gi/Dd4bFSTQ8gi.basis.glb",
+    "goal_object_id": "280"
+  },
+  {
+    "index": 28,
+    "episode_id": "159",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00824-Dd4bFSTQ8gi/Dd4bFSTQ8gi.basis.glb",
+    "goal_object_id": "9"
+  },
+  {
+    "index": 29,
+    "episode_id": "176",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00824-Dd4bFSTQ8gi/Dd4bFSTQ8gi.basis.glb",
+    "goal_object_id": "100"
+  },
+  {
+    "index": 30,
+    "episode_id": "481",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00873-bxsVRursffK/bxsVRursffK.basis.glb",
+    "goal_object_id": "318"
+  },
+  {
+    "index": 31,
+    "episode_id": "858",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00808-y9hTuugGdiq/y9hTuugGdiq.basis.glb",
+    "goal_object_id": "742"
+  },
+  {
+    "index": 32,
+    "episode_id": "843",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00808-y9hTuugGdiq/y9hTuugGdiq.basis.glb",
+    "goal_object_id": "481"
+  },
+  {
+    "index": 33,
+    "episode_id": "835",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00808-y9hTuugGdiq/y9hTuugGdiq.basis.glb",
+    "goal_object_id": "254"
+  },
+  {
+    "index": 34,
+    "episode_id": "834",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00808-y9hTuugGdiq/y9hTuugGdiq.basis.glb",
+    "goal_object_id": "253"
+  },
+  {
+    "index": 35,
+    "episode_id": "997",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00839-zt1RVoi7PcG/zt1RVoi7PcG.basis.glb",
+    "goal_object_id": "735"
+  },
+  {
+    "index": 36,
+    "episode_id": "967",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00839-zt1RVoi7PcG/zt1RVoi7PcG.basis.glb",
+    "goal_object_id": "191"
+  },
+  {
+    "index": 37,
+    "episode_id": "968",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00839-zt1RVoi7PcG/zt1RVoi7PcG.basis.glb",
+    "goal_object_id": "198"
+  },
+  {
+    "index": 38,
+    "episode_id": "991",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00839-zt1RVoi7PcG/zt1RVoi7PcG.basis.glb",
+    "goal_object_id": "731"
+  },
+  {
+    "index": 39,
+    "episode_id": "964",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00839-zt1RVoi7PcG/zt1RVoi7PcG.basis.glb",
+    "goal_object_id": "147"
+  },
+  {
+    "index": 40,
+    "episode_id": "982",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00839-zt1RVoi7PcG/zt1RVoi7PcG.basis.glb",
+    "goal_object_id": "637"
+  },
+  {
+    "index": 41,
+    "episode_id": "989",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00839-zt1RVoi7PcG/zt1RVoi7PcG.basis.glb",
+    "goal_object_id": "730"
+  },
+  {
+    "index": 42,
+    "episode_id": "227",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00894-HY1NcmCgn3n/HY1NcmCgn3n.basis.glb",
+    "goal_object_id": "267"
+  },
+  {
+    "index": 43,
+    "episode_id": "332",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00800-TEEsavR23oF/TEEsavR23oF.basis.glb",
+    "goal_object_id": "16"
+  },
+  {
+    "index": 44,
+    "episode_id": "357",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00800-TEEsavR23oF/TEEsavR23oF.basis.glb",
+    "goal_object_id": "642"
+  },
+  {
+    "index": 45,
+    "episode_id": "750",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00844-q5QZSEeHe5g/q5QZSEeHe5g.basis.glb",
+    "goal_object_id": "806"
+  },
+  {
+    "index": 46,
+    "episode_id": "733",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00844-q5QZSEeHe5g/q5QZSEeHe5g.basis.glb",
+    "goal_object_id": "596"
+  },
+  {
+    "index": 47,
+    "episode_id": "745",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00844-q5QZSEeHe5g/q5QZSEeHe5g.basis.glb",
+    "goal_object_id": "676"
+  },
+  {
+    "index": 48,
+    "episode_id": "749",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00844-q5QZSEeHe5g/q5QZSEeHe5g.basis.glb",
+    "goal_object_id": "719"
+  },
+  {
+    "index": 49,
+    "episode_id": "723",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00844-q5QZSEeHe5g/q5QZSEeHe5g.basis.glb",
+    "goal_object_id": "113"
+  },
+  {
+    "index": 50,
+    "episode_id": "109",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00827-BAbdmeyTvMZ/BAbdmeyTvMZ.basis.glb",
+    "goal_object_id": "93"
+  },
+  {
+    "index": 51,
+    "episode_id": "693",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00814-p53SfW6mjZe/p53SfW6mjZe.basis.glb",
+    "goal_object_id": "714"
+  },
+  {
+    "index": 52,
+    "episode_id": "698",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00814-p53SfW6mjZe/p53SfW6mjZe.basis.glb",
+    "goal_object_id": "791"
+  },
+  {
+    "index": 53,
+    "episode_id": "679",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00814-p53SfW6mjZe/p53SfW6mjZe.basis.glb",
+    "goal_object_id": "397"
+  },
+  {
+    "index": 54,
+    "episode_id": "694",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00814-p53SfW6mjZe/p53SfW6mjZe.basis.glb",
+    "goal_object_id": "755"
+  },
+  {
+    "index": 55,
+    "episode_id": "535",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00821-eF36g7L6Z9M/eF36g7L6Z9M.basis.glb",
+    "goal_object_id": "63"
+  },
+  {
+    "index": 56,
+    "episode_id": "570",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00821-eF36g7L6Z9M/eF36g7L6Z9M.basis.glb",
+    "goal_object_id": "880"
+  },
+  {
+    "index": 57,
+    "episode_id": "559",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00821-eF36g7L6Z9M/eF36g7L6Z9M.basis.glb",
+    "goal_object_id": "326"
+  },
+  {
+    "index": 58,
+    "episode_id": "571",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00821-eF36g7L6Z9M/eF36g7L6Z9M.basis.glb",
+    "goal_object_id": "884"
+  },
+  {
+    "index": 59,
+    "episode_id": "536",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00821-eF36g7L6Z9M/eF36g7L6Z9M.basis.glb",
+    "goal_object_id": "64"
+  },
+  {
+    "index": 60,
+    "episode_id": "806",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00813-svBbv1Pavdk/svBbv1Pavdk.basis.glb",
+    "goal_object_id": "350"
+  },
+  {
+    "index": 61,
+    "episode_id": "794",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00813-svBbv1Pavdk/svBbv1Pavdk.basis.glb",
+    "goal_object_id": "287"
+  },
+  {
+    "index": 62,
+    "episode_id": "793",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00813-svBbv1Pavdk/svBbv1Pavdk.basis.glb",
+    "goal_object_id": "275"
+  },
+  {
+    "index": 63,
+    "episode_id": "90",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00823-7MXmsvcQjpJ/7MXmsvcQjpJ.basis.glb",
+    "goal_object_id": "801"
+  },
+  {
+    "index": 64,
+    "episode_id": "65",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00823-7MXmsvcQjpJ/7MXmsvcQjpJ.basis.glb",
+    "goal_object_id": "27"
+  },
+  {
+    "index": 65,
+    "episode_id": "98",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00823-7MXmsvcQjpJ/7MXmsvcQjpJ.basis.glb",
+    "goal_object_id": "927"
+  },
+  {
+    "index": 66,
+    "episode_id": "94",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00823-7MXmsvcQjpJ/7MXmsvcQjpJ.basis.glb",
+    "goal_object_id": "925"
+  },
+  {
+    "index": 67,
+    "episode_id": "83",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00823-7MXmsvcQjpJ/7MXmsvcQjpJ.basis.glb",
+    "goal_object_id": "794"
+  },
+  {
+    "index": 68,
+    "episode_id": "397",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00871-VBzV5z6i1WS/VBzV5z6i1WS.basis.glb",
+    "goal_object_id": "805"
+  },
+  {
+    "index": 69,
+    "episode_id": "370",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00871-VBzV5z6i1WS/VBzV5z6i1WS.basis.glb",
+    "goal_object_id": "326"
+  },
+  {
+    "index": 70,
+    "episode_id": "381",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00871-VBzV5z6i1WS/VBzV5z6i1WS.basis.glb",
+    "goal_object_id": "454"
+  },
+  {
+    "index": 71,
+    "episode_id": "950",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00848-ziup5kvtCCR/ziup5kvtCCR.basis.glb",
+    "goal_object_id": "179"
+  },
+  {
+    "index": 72,
+    "episode_id": "486",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00891-cvZr5TUy5C5/cvZr5TUy5C5.basis.glb",
+    "goal_object_id": "31"
+  },
+  {
+    "index": 73,
+    "episode_id": "521",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00891-cvZr5TUy5C5/cvZr5TUy5C5.basis.glb",
+    "goal_object_id": "621"
+  },
+  {
+    "index": 74,
+    "episode_id": "526",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00891-cvZr5TUy5C5/cvZr5TUy5C5.basis.glb",
+    "goal_object_id": "858"
+  },
+  {
+    "index": 75,
+    "episode_id": "502",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00891-cvZr5TUy5C5/cvZr5TUy5C5.basis.glb",
+    "goal_object_id": "206"
+  },
+  {
+    "index": 76,
+    "episode_id": "504",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00891-cvZr5TUy5C5/cvZr5TUy5C5.basis.glb",
+    "goal_object_id": "230"
+  },
+  {
+    "index": 77,
+    "episode_id": "35",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00853-5cdEh9F2hJL/5cdEh9F2hJL.basis.glb",
+    "goal_object_id": "454"
+  },
+  {
+    "index": 78,
+    "episode_id": "17",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00853-5cdEh9F2hJL/5cdEh9F2hJL.basis.glb",
+    "goal_object_id": "36"
+  },
+  {
+    "index": 79,
+    "episode_id": "130",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00810-CrMo8WxCyVb/CrMo8WxCyVb.basis.glb",
+    "goal_object_id": "331"
+  },
+  {
+    "index": 80,
+    "episode_id": "135",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00810-CrMo8WxCyVb/CrMo8WxCyVb.basis.glb",
+    "goal_object_id": "392"
+  },
+  {
+    "index": 81,
+    "episode_id": "142",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00810-CrMo8WxCyVb/CrMo8WxCyVb.basis.glb",
+    "goal_object_id": "443"
+  },
+  {
+    "index": 82,
+    "episode_id": "139",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00810-CrMo8WxCyVb/CrMo8WxCyVb.basis.glb",
+    "goal_object_id": "412"
+  },
+  {
+    "index": 83,
+    "episode_id": "462",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00847-bCPU9suPUw9/bCPU9suPUw9.basis.glb",
+    "goal_object_id": "354"
+  },
+  {
+    "index": 84,
+    "episode_id": "450",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00847-bCPU9suPUw9/bCPU9suPUw9.basis.glb",
+    "goal_object_id": "71"
+  },
+  {
+    "index": 85,
+    "episode_id": "467",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00847-bCPU9suPUw9/bCPU9suPUw9.basis.glb",
+    "goal_object_id": "375"
+  },
+  {
+    "index": 86,
+    "episode_id": "818",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00802-wcojb4TFT35/wcojb4TFT35.basis.glb",
+    "goal_object_id": "349"
+  },
+  {
+    "index": 87,
+    "episode_id": "822",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00802-wcojb4TFT35/wcojb4TFT35.basis.glb",
+    "goal_object_id": "414"
+  },
+  {
+    "index": 88,
+    "episode_id": "577",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00815-h1zeeAwLh9Z/h1zeeAwLh9Z.basis.glb",
+    "goal_object_id": "138"
+  },
+  {
+    "index": 89,
+    "episode_id": "50",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00890-6s7QHgap2fW/6s7QHgap2fW.basis.glb",
+    "goal_object_id": "149"
+  },
+  {
+    "index": 90,
+    "episode_id": "46",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00890-6s7QHgap2fW/6s7QHgap2fW.basis.glb",
+    "goal_object_id": "113"
+  },
+  {
+    "index": 91,
+    "episode_id": "699",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00835-q3zU7Yy5E5s/q3zU7Yy5E5s.basis.glb",
+    "goal_object_id": "23"
+  },
+  {
+    "index": 92,
+    "episode_id": "206",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00861-GLAQ4DNUx5U/GLAQ4DNUx5U.basis.glb",
+    "goal_object_id": "534"
+  },
+  {
+    "index": 93,
+    "episode_id": "305",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00880-Nfvxx8J5NCo/Nfvxx8J5NCo.basis.glb",
+    "goal_object_id": "95"
+  },
+  {
+    "index": 94,
+    "episode_id": "315",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00880-Nfvxx8J5NCo/Nfvxx8J5NCo.basis.glb",
+    "goal_object_id": "341"
+  },
+  {
+    "index": 95,
+    "episode_id": "302",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00880-Nfvxx8J5NCo/Nfvxx8J5NCo.basis.glb",
+    "goal_object_id": "31"
+  },
+  {
+    "index": 96,
+    "episode_id": "433",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00849-a8BtkwhxdRV/a8BtkwhxdRV.basis.glb",
+    "goal_object_id": "453"
+  },
+  {
+    "index": 97,
+    "episode_id": "8",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00877-4ok3usBNeis/4ok3usBNeis.basis.glb",
+    "goal_object_id": "300"
+  },
+  {
+    "index": 98,
+    "episode_id": "5",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00877-4ok3usBNeis/4ok3usBNeis.basis.glb",
+    "goal_object_id": "269"
+  },
+  {
+    "index": 99,
+    "episode_id": "612",
+    "scene_id": "data/scene_datasets/hm3d_v0.2/val/00803-k1cupFYWXJ6/k1cupFYWXJ6.basis.glb",
+    "goal_object_id": "593"
+  }
+]
