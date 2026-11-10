@@ -11,7 +11,8 @@ from functools import lru_cache
 from pathlib import Path
 from uuid import uuid4
 from PIL import Image, ImageDraw
-from configs.navigation_config import instance_verification_prompt
+from configs.navigation_config import (instance_verification_prompt, instance_verification_scope,
+                                       instance_rejection_policy, env_bool)
 from utils.model_client import ModelRequestError
 
 LOG = logging.getLogger(__name__)
@@ -184,7 +185,10 @@ def _verify_candidate_result(model_client, rgb, boxes, category, attributes, *, 
     # Only language descriptions are sent; annotation image paths and object IDs are excluded.
     description = '\n'.join(str(attributes.get(k, '')) for k in
                             ('intrinsic_attributes', 'extrinsic_attributes')).strip()
-    if not description:
+    scope = instance_verification_scope()
+    if scope == 'category' and conflict:
+        raise ValueError('Category verification requires positive_match')
+    if scope == 'instance' and not description:
         raise ValueError('InstanceNav requires intrinsic/extrinsic goal descriptions')
     image = _candidate_image(rgb, boxes)
     if conflict:
@@ -207,6 +211,20 @@ def _verify_candidate_result(model_client, rgb, boxes, category, attributes, *, 
         'Each string must be "yes", "no", or "unknown", one decision per box in index order. '
         'No additional fields, ellipsis, comments, or explanations.'
     )
+    if scope == 'category':
+        # No instance description is included; keep image, schema and stage unchanged.
+        prompt = (
+            f'Check object category only. Red boxes are candidate objects numbered 0 to {len(boxes)-1}.\n'
+            f'Target category: {category}.\n'
+            'For each box, answer "yes" when the visible evidence supports that the boxed object '
+            'belongs to the target category. Answer "no" only when visible evidence clearly shows '
+            'that it does not belong to the target category. If the object is too small, obscured, '
+            'unclear, or you cannot determine its category, answer "unknown". '
+            'Do not distinguish between individual instances of the same category. '
+            f'Return only one JSON object with a "matches" array of exactly {len(boxes)} strings. '
+            'Each string must be "yes", "no", or "unknown", one decision per box in index order. '
+            'No additional fields, ellipsis, comments, or explanations.'
+        )
     # The admission check is independent of confirmation counting, including
     # when the image and boxes are identical. Distinct prompts also separate
     # their keys in ModelClient's exact-response cache.
@@ -226,7 +244,16 @@ def _verify_candidate_result(model_client, rgb, boxes, category, attributes, *, 
         'name': 'instance_matches', 'strict': True, 'schema': schema}}
     log_context = {'verification_id': uuid4().hex, **(log_context or {}),
                    'mode': 'contradiction' if conflict else 'instance_match',
-                   'category': category, 'candidate_count': len(boxes)}
+                   'category': category, 'candidate_count': len(boxes),
+                   'verification_scope': scope, 'rejection_policy': instance_rejection_policy(),
+                   'prompt_sha256': hashlib.sha256(prompt.encode()).hexdigest()}
+    if env_bool('INSTANCE_VERIFICATION_RECORD_INPUTS', False) and not log_context.get('collect_directory'):
+        logfile = os.environ.get('PSGNAV_LOG_FILE')
+        if not logfile:
+            raise ValueError('Input recording requires PSGNAV_LOG_FILE')
+        directory = Path(logfile).resolve().with_suffix('.verification')
+        directory.mkdir(parents=True, exist_ok=True)
+        log_context['collect_directory'] = str(directory)
     for attempt in range(3):
         request = prompt
         if attempt:

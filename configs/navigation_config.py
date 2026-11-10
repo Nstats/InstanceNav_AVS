@@ -126,6 +126,41 @@ def instance_verification_prompt():
     return name
 
 
+def instance_verification_scope():
+    value = (_raw('INSTANCE_VERIFICATION_SCOPE') or 'instance').lower()
+    if value not in {'instance', 'category'}:
+        raise ValueError('INSTANCE_VERIFICATION_SCOPE must be instance or category')
+    return value
+
+
+def instance_rejection_policy():
+    value = (_raw('INSTANCE_REJECTION_POLICY') or 'none').lower()
+    if value not in {'none', 'no', 'non_yes'}:
+        raise ValueError('INSTANCE_REJECTION_POLICY must be none, no or non_yes')
+    return value
+
+
+def instance_confirmation_count_unit():
+    value = (_raw('INSTANCE_CONFIRMATION_COUNT_UNIT') or 'detection').lower()
+    if value not in {'detection', 'frame'}:
+        raise ValueError('INSTANCE_CONFIRMATION_COUNT_UNIT must be detection or frame')
+    return value
+
+
+def validate_instance_ablation():
+    """Fail before a run rather than silently combining incompatible semantics."""
+    scope, policy = instance_verification_scope(), instance_rejection_policy()
+    if scope != 'instance' or policy != 'none':
+        if not instance_confirmation_enabled() or instance_confirmation_mode() != 'positive_match':
+            raise ValueError('Category/rejection ablations require confirmation and positive_match')
+        if (verify_before_candidate_enabled() or instance_collect_only_enabled()
+                or relative_evidence_enabled() or post_confirmation_contradiction_check_enabled()):
+            raise ValueError('Category/rejection ablations require admission, collect-only, '
+                             'relative evidence and post check disabled')
+    return {'scope': scope, 'rejection_policy': policy, 'count_unit': instance_confirmation_count_unit(),
+            'record_inputs': env_bool('INSTANCE_VERIFICATION_RECORD_INPUTS', False)}
+
+
 def post_confirmation_contradiction_check_enabled():
     if not instance_confirmation_enabled():
         return False

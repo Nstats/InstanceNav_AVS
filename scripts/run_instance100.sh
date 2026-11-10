@@ -21,6 +21,7 @@ set -euo pipefail
 unset ENABLE_INSTANCE_CONFIRMATION_BEFORE_FIND_GOAL
 # 同一候选的正式核验有效通过次数；所有类别统一，达到阈值即锁定。总开关关闭时不生效。
 : "${INSTANCE_CONFIRMATION_THRESHOLD:=1}"  # --instance-confirmation-threshold
+: "${INSTANCE_CONFIRMATION_COUNT_UNIT:=detection}"  # --instance-confirmation-count-unit
 # 独立的候选准入核验；准入结果不计锁定票，近距离锁定核验另行调用。
 : "${VERIFY_BEFORE_CANDIDATE:=false}"  # --verify-before-candidate
 # INSTANCE_CONFIRMATION_MODE (--instance-confirmation-mode) 的两种选择（实例确认总开关开启时生效）：
@@ -31,6 +32,9 @@ unset ENABLE_INSTANCE_CONFIRMATION_BEFORE_FIND_GOAL
 #   match：原始提示词（默认），证据不足才答 unknown；实际上几乎从不答 unknown，“否”里混着“看不清”。
 #   match_strict_no：只有明确矛盾才答 no；看不清、被遮挡、属性或周围环境不在画面里都答 unknown。
 : "${INSTANCE_VERIFICATION_PROMPT:=match_strict_no}"  # --instance-verification-prompt
+: "${INSTANCE_VERIFICATION_SCOPE:=instance}"  # --instance-verification-scope
+: "${INSTANCE_REJECTION_POLICY:=none}"  # --instance-rejection-policy
+: "${INSTANCE_VERIFICATION_RECORD_INPUTS:=false}"  # --instance-verification-record-inputs
 # 独立复验开关：仅用于 positive_match，且要求实例确认总开关开启。
 # true：正式确认前，将当前及同一候选的全部历史正面观测一次性多图复验。
 # false：不做这次额外复验（默认）；与上面的 contradiction 主确认方式不同。
@@ -89,14 +93,21 @@ Options:
   --instance-confirmation-threshold N
                                     Required passing verification count for every category (default: 1)
                                     Applies only when instance confirmation is enabled
+  --instance-confirmation-count-unit NAME
+                                    detection (legacy default) or frame (one vote per candidate/frame)
   --verify-before-candidate BOOL    Independent candidate-admission check (default: false)
                                     Admission passes never count as confirmation votes
   --instance-confirmation-mode MODE
                                     positive_match (default) or contradiction
                                     Select the primary instance confirmation policy
   --instance-verification-prompt NAME
-                                    match (default) or match_strict_no
+                                    match or match_strict_no (default)
                                     match_strict_no answers no only for a clear contradiction
+  --instance-verification-scope NAME
+                                    instance (default) or category
+  --instance-rejection-policy NAME  none (default), no, or non_yes; episode-local permanent rejection
+  --instance-verification-record-inputs BOOL
+                                    Save exact request/image evidence (default: false)
   --enable-post-confirmation-contradiction-check BOOL
                                     true/false/1/0/yes/no (default: false)
                                     Recheck a positive match using all its positive views
@@ -239,6 +250,13 @@ while (( $# > 0 )); do
       INSTANCE_VERIFICATION_PROMPT="$2"
       shift 2
       ;;
+    --instance-verification-scope|--instance-rejection-policy|--instance-verification-record-inputs|--instance-confirmation-count-unit)
+      require_option_value "$1" "${2:-}"
+      ablation_name="${1#--}"
+      ablation_name="${ablation_name//-/_}"
+      printf -v "${ablation_name^^}" '%s' "$2"
+      shift 2
+      ;;
     --enable-post-confirmation-contradiction-check)
       require_option_value "$1" "${2:-}"
       ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK="$2"
@@ -333,6 +351,7 @@ esac
 normalize_bool_var ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK
 normalize_bool_var PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY
 normalize_bool_var INSTANCE_COLLECT_ONLY
+normalize_bool_var INSTANCE_VERIFICATION_RECORD_INPUTS
 normalize_bool_var ENABLE_RELATIVE_EVIDENCE
 normalize_bool_var RELATIVE_EVIDENCE_USE_U
 normalize_bool_var RELATIVE_EVIDENCE_EARLY_STOP
@@ -412,9 +431,11 @@ export ENABLE_GROUP_LLM_FILTER
 export ENABLE_ROOM_LLM_FILTER
 export ENABLE_INSTANCE_CONFIRMATION
 export INSTANCE_CONFIRMATION_THRESHOLD
+export INSTANCE_CONFIRMATION_COUNT_UNIT
 export VERIFY_BEFORE_CANDIDATE
 export INSTANCE_CONFIRMATION_MODE
 export INSTANCE_VERIFICATION_PROMPT
+export INSTANCE_VERIFICATION_SCOPE INSTANCE_REJECTION_POLICY INSTANCE_VERIFICATION_RECORD_INPUTS
 export ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK
 export PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY
 export INSTANCE_COLLECT_ONLY
@@ -454,6 +475,8 @@ PY
 )"
 fi
 "$psgnav_python" - <<'PY'
+from configs.navigation_config import validate_instance_ablation
+validate_instance_ablation()
 import inspect, torch
 if 'weights_only' not in inspect.signature(torch.load).parameters:
     raise SystemExit('当前 Torch 不支持本版使用的 weights_only 参数；请使用复现指南中的 PyTorch 2.7 环境。')
@@ -486,9 +509,13 @@ if (( check_only )); then
   echo "ENABLE_ROOM_LLM_FILTER: ${ENABLE_ROOM_LLM_FILTER}"
   echo "ENABLE_INSTANCE_CONFIRMATION: ${ENABLE_INSTANCE_CONFIRMATION}"
   echo "INSTANCE_CONFIRMATION_THRESHOLD: ${INSTANCE_CONFIRMATION_THRESHOLD}"
+  echo "INSTANCE_CONFIRMATION_COUNT_UNIT: ${INSTANCE_CONFIRMATION_COUNT_UNIT}"
   echo "VERIFY_BEFORE_CANDIDATE: ${VERIFY_BEFORE_CANDIDATE}"
   echo "INSTANCE_CONFIRMATION_MODE: ${INSTANCE_CONFIRMATION_MODE}"
   echo "INSTANCE_VERIFICATION_PROMPT: ${INSTANCE_VERIFICATION_PROMPT}"
+  echo "INSTANCE_VERIFICATION_SCOPE: ${INSTANCE_VERIFICATION_SCOPE}"
+  echo "INSTANCE_REJECTION_POLICY: ${INSTANCE_REJECTION_POLICY}"
+  echo "INSTANCE_VERIFICATION_RECORD_INPUTS: ${INSTANCE_VERIFICATION_RECORD_INPUTS}"
   echo "ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK: ${ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK}"
   echo "PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY: ${PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY}"
   echo "INSTANCE_COLLECT_ONLY: ${INSTANCE_COLLECT_ONLY}"
@@ -520,9 +547,13 @@ run_worker() {
     echo "ENABLE_ROOM_LLM_FILTER: ${ENABLE_ROOM_LLM_FILTER}"
     echo "ENABLE_INSTANCE_CONFIRMATION: ${ENABLE_INSTANCE_CONFIRMATION}"
     echo "INSTANCE_CONFIRMATION_THRESHOLD: ${INSTANCE_CONFIRMATION_THRESHOLD}"
+    echo "INSTANCE_CONFIRMATION_COUNT_UNIT: ${INSTANCE_CONFIRMATION_COUNT_UNIT}"
     echo "VERIFY_BEFORE_CANDIDATE: ${VERIFY_BEFORE_CANDIDATE}"
     echo "INSTANCE_CONFIRMATION_MODE: ${INSTANCE_CONFIRMATION_MODE}"
     echo "INSTANCE_VERIFICATION_PROMPT: ${INSTANCE_VERIFICATION_PROMPT}"
+    echo "INSTANCE_VERIFICATION_SCOPE: ${INSTANCE_VERIFICATION_SCOPE}"
+    echo "INSTANCE_REJECTION_POLICY: ${INSTANCE_REJECTION_POLICY}"
+    echo "INSTANCE_VERIFICATION_RECORD_INPUTS: ${INSTANCE_VERIFICATION_RECORD_INPUTS}"
     echo "ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK: ${ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK}"
     echo "PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY: ${PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY}"
     echo "INSTANCE_COLLECT_ONLY: ${INSTANCE_COLLECT_ONLY}"
@@ -597,9 +628,13 @@ run_dual() {
   echo "ENABLE_ROOM_LLM_FILTER: ${ENABLE_ROOM_LLM_FILTER}"
   echo "ENABLE_INSTANCE_CONFIRMATION: ${ENABLE_INSTANCE_CONFIRMATION}"
   echo "INSTANCE_CONFIRMATION_THRESHOLD: ${INSTANCE_CONFIRMATION_THRESHOLD}"
+  echo "INSTANCE_CONFIRMATION_COUNT_UNIT: ${INSTANCE_CONFIRMATION_COUNT_UNIT}"
   echo "VERIFY_BEFORE_CANDIDATE: ${VERIFY_BEFORE_CANDIDATE}"
   echo "INSTANCE_CONFIRMATION_MODE: ${INSTANCE_CONFIRMATION_MODE}"
   echo "INSTANCE_VERIFICATION_PROMPT: ${INSTANCE_VERIFICATION_PROMPT}"
+  echo "INSTANCE_VERIFICATION_SCOPE: ${INSTANCE_VERIFICATION_SCOPE}"
+  echo "INSTANCE_REJECTION_POLICY: ${INSTANCE_REJECTION_POLICY}"
+  echo "INSTANCE_VERIFICATION_RECORD_INPUTS: ${INSTANCE_VERIFICATION_RECORD_INPUTS}"
   echo "ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK: ${ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK}"
   echo "PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY: ${PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY}"
   echo "INSTANCE_COLLECT_ONLY: ${INSTANCE_COLLECT_ONLY}"
@@ -723,9 +758,13 @@ exec 3>&1
   echo "ENABLE_ROOM_LLM_FILTER: ${ENABLE_ROOM_LLM_FILTER}"
   echo "ENABLE_INSTANCE_CONFIRMATION: ${ENABLE_INSTANCE_CONFIRMATION}"
   echo "INSTANCE_CONFIRMATION_THRESHOLD: ${INSTANCE_CONFIRMATION_THRESHOLD}"
+  echo "INSTANCE_CONFIRMATION_COUNT_UNIT: ${INSTANCE_CONFIRMATION_COUNT_UNIT}"
   echo "VERIFY_BEFORE_CANDIDATE: ${VERIFY_BEFORE_CANDIDATE}"
   echo "INSTANCE_CONFIRMATION_MODE: ${INSTANCE_CONFIRMATION_MODE}"
   echo "INSTANCE_VERIFICATION_PROMPT: ${INSTANCE_VERIFICATION_PROMPT}"
+  echo "INSTANCE_VERIFICATION_SCOPE: ${INSTANCE_VERIFICATION_SCOPE}"
+  echo "INSTANCE_REJECTION_POLICY: ${INSTANCE_REJECTION_POLICY}"
+  echo "INSTANCE_VERIFICATION_RECORD_INPUTS: ${INSTANCE_VERIFICATION_RECORD_INPUTS}"
   echo "ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK: ${ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK}"
   echo "PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY: ${PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY}"
   echo "INSTANCE_COLLECT_ONLY: ${INSTANCE_COLLECT_ONLY}"

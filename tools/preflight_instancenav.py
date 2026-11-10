@@ -20,7 +20,8 @@ def check(config_path, check_api=False):
                                            preserve_positive_evidence_on_recovery_enabled,
                                            instance_collect_only_enabled,
                                            instance_description_for_exploration_enabled,
-                                           relative_evidence_run_header)
+                                           relative_evidence_run_header, validate_instance_ablation)
+    print('Instance ablation: ' + json.dumps(validate_instance_ablation()))
     mode = instance_confirmation_mode()
     post_check = post_confirmation_contradiction_check_enabled()
     preserve = preserve_positive_evidence_on_recovery_enabled()

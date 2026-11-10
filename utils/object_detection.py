@@ -22,6 +22,9 @@ from configs.navigation_config import (
     instance_collect_only_enabled,
     relative_evidence_enabled,
     validate_relative_evidence,
+    instance_rejection_policy,
+    validate_instance_ablation,
+    instance_confirmation_count_unit,
 )
 from utils import collect_only
 from utils.log_utils import log_event, vprint
@@ -88,6 +91,7 @@ class ObjectDetectionManager:
 
     def reset_instance_verification(self, episode):
         """Episode reset only: navigation recovery must retain semantic vetoes."""
+        validate_instance_ablation()
         self.agent.goal_constraints = []
         self.agent.instance_rejections = []
         self._positive_evidence = None
@@ -615,6 +619,7 @@ class ObjectDetectionManager:
         controller = getattr(self.agent, 'relative_evidence_controller', None)
         decisions = {}
         conflict = instance_confirmation_mode() == 'contradiction'
+        rejection_policy = instance_rejection_policy()
         candidates = self._instance_candidates(observations, boxes, masks=masks, nodes=nodes,
                                                prediction_indices=prediction_indices)
         context = {'episode': getattr(self.agent, 'count_episodes', None),
@@ -640,6 +645,7 @@ class ObjectDetectionManager:
                            'scenegraph' if masks is not None else 'navigation', scores))
         vetoes = []
         veto_indices = set()
+        veto_answers = {}
 
         def rejected(candidate):
             if self._instance_was_rejected(candidate):
@@ -651,7 +657,7 @@ class ObjectDetectionManager:
                 return []
             stage_context = {**context, 'verification_id': uuid4().hex,
                              'stage': stage, 'box_indices': indices}
-            if controller is not None or collection is not None:
+            if controller is not None or collection is not None or rejection_policy != 'none':
                 matches = verify_candidate_decisions(
                     self.agent.scenegraph.model_client, observations['rgb'], [boxes[i] for i in indices],
                     self.agent.obj_goal, self.agent.goal_attributes, log_context=stage_context)
@@ -660,6 +666,12 @@ class ObjectDetectionManager:
                     stages.append({'stage': stage, 'verification_id': stage_context['verification_id'],
                                    'box_indices': list(indices), 'matches': matches})
                 local_kept = {i for i, answer in enumerate(matches) if answer == 'yes'}
+                if stage == 'goal_confirmation' and rejection_policy != 'none':
+                    for i, answer in zip(indices, matches):
+                        if answer == 'no' or (answer == 'unknown' and rejection_policy == 'non_yes'):
+                            vetoes.append(candidates[i])
+                            veto_indices.add(i)
+                            veto_answers[i] = answer
             else:
                 local_kept = set(verify_candidates(
                     self.agent.scenegraph.model_client, observations['rgb'], [boxes[i] for i in indices],
@@ -668,6 +680,7 @@ class ObjectDetectionManager:
             if conflict:
                 vetoes.extend(candidates[i] for j, i in enumerate(indices) if j not in local_kept)
                 veto_indices.update(i for j, i in enumerate(indices) if j not in local_kept)
+                veto_answers.update({i: 'yes' for j, i in enumerate(indices) if j not in local_kept})
             self._last_verification_id = stage_context['verification_id']
             return [i for j, i in enumerate(indices) if j in local_kept and not rejected(candidates[i])]
 
@@ -675,7 +688,8 @@ class ObjectDetectionManager:
         if len(active) != len(boxes):
             log_instance_verification('history_skip', context=context,
                                       skipped_box_indices=[i for i in range(len(boxes)) if i not in active],
-                                      reason='previous_contradiction')
+                                      reason='previous_contradiction' if conflict else 'permanent_rejection',
+                                      rejection_policy=rejection_policy)
         # Admission is independent: passing it never produces a confirmation vote.
         # With admission disabled, detector proposals may be approached directly.
         preverify = verify_before_candidate_enabled()
@@ -690,13 +704,22 @@ class ObjectDetectionManager:
 
         # Commit semantic vetoes only after all requested checks succeed. A failed
         # API call/invalid response must not create votes or partial veto history.
-        for candidate in vetoes:
-            self.agent.instance_rejections.append({**candidate, 'step': self.agent.total_steps,
-                                                  'decision': 'yes'})
-            self._clear_rejected_instance(candidate)
         for index in sorted(veto_indices):
             candidate = candidates[index]
-            print(f'[Contradiction Reject] node={candidate["node_id"]} gps={candidate["gps"]} '
+            self.agent.instance_rejections.append({**candidate, 'step': self.agent.total_steps,
+                                                  'decision': veto_answers[index],
+                                                  'policy': 'contradiction' if conflict else rejection_policy})
+            self._clear_rejected_instance(candidate)
+            if not conflict:
+                log_instance_verification('permanent_rejection', context=context,
+                                          box_index=index, answer=veto_answers[index],
+                                          rejection_policy=rejection_policy,
+                                          node_id=str(candidate['node_id']) if candidate['node_id'] is not None else None,
+                                          gps=candidate['gps'].tolist() if candidate['gps'] is not None else None)
+        for index in sorted(veto_indices):
+            candidate = candidates[index]
+            tag = 'Contradiction Reject' if conflict else 'Instance Reject'
+            print(f'[{tag}] node={candidate["node_id"]} gps={candidate["gps"]} '
                   f'box={index}')
             if candidate['gps'] is None and candidate['node_id'] is None:
                 LOG.warning('Rejected unlocalized box %d; history cannot associate it across views', index)
@@ -721,6 +744,15 @@ class ObjectDetectionManager:
                                   admitted_box_indices=admitted, confirmation_box_indices=eligible,
                                   confirmed_box_indices=confirmed, kept_box_indices=kept,
                                   rejected_box_indices=[i for i in range(len(boxes)) if i not in kept])
+        if rejection_policy != 'none':
+            log_instance_verification('rejection_policy_frame', context=context,
+                rejection_policy=rejection_policy, candidates=[{
+                    'box_index': i, 'box': list(map(float, c['box'])),
+                    'node_id': str(c['node_id']) if c['node_id'] is not None else None,
+                    'gps': c['gps'].tolist() if c['gps'] is not None else None,
+                    'answer': decisions.get(i), 'history_skipped': i not in active,
+                    'permanently_rejected': rejected(c),
+                } for i, c in enumerate(candidates)])
         self._emit_rejected_detections(boxes, kept, masks=masks,
                                       prediction_indices=prediction_indices,
                                       verification_id=getattr(self, '_last_verification_id', None),
@@ -839,6 +871,9 @@ class ObjectDetectionManager:
             self._post_possible_track_id = None
 
     def _record_scenegraph_confirmation_vote(self, track):
+        if (instance_confirmation_count_unit() == 'frame'
+                and any(step == self.agent.total_steps for _, _, step in track.votes)):
+            return  # Reprocessing one observation must not satisfy k=2.
         x = int(self.agent.map_size_cm / 10 - track.gps[1] * 100 / self.agent.resolution)
         y = int(self.agent.map_size_cm / 10 + track.gps[0] * 100 / self.agent.resolution)
         track.votes.append((y, x, self.agent.total_steps))
@@ -993,7 +1028,7 @@ class ObjectDetectionManager:
             self.agent.rag_latest_goal_detection = None
             if hasattr(self.agent, '_temp_latest_detection'):
                 del self.agent._temp_latest_detection
-            self.agent.explanation = 'Candidate rejected by an explicit attribute conflict'
+            self.agent.explanation = 'Candidate permanently rejected by the configured verification rule'
 
     def _pixel_direction(self, x):
         """Horizontal angle (deg) of RGB column x; CoIN uses its own RGB intrinsics."""
@@ -1168,6 +1203,9 @@ class ObjectDetectionManager:
         thres = int(self.agent.goal_merge_threshold * 100 / self.agent.map_resolution)
 
         if post_track is not None and not self._post_candidate_is_available(post_track):
+            return
+        if (post_track is not None and instance_confirmation_count_unit() == 'frame'
+                and any(step == self.agent.total_steps for _, _, step in post_track.votes)):
             return
         if 0 <= map_x < self.agent.map_size and 0 <= map_y < self.agent.map_size:
 

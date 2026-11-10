@@ -14,6 +14,41 @@
 - InstanceNav 配置、固定执行顺序和子集清单位于 `configs/runtime/`。清单只保存任务标识与复现信息，不包含图像、场景或完整数据集。
 - 运行输出写入 `outputs/` 和 `data/results_*/`，均不受 Git 管理。
 
+## 从全量数据恢复固定100任务
+
+100个任务的身份清单 `configs/runtime/val10.manifest.json` 和执行索引
+`configs/runtime/evaluation_order_fixed100.json` **已经受 Git 管理**。后者是 Habitat
+按场景分组后的执行顺序，不是子集 JSON 的原始行号；不要自行取全量数据的前100条。
+
+在新机器 `git pull` 后，使用 Python 3.9 或以上运行（只用标准库，不调用模型）：
+
+```bash
+cd /path/to/InstanceNav_AVS
+python tools/restore_instance100.py
+```
+
+默认读取已下载的 `data/datasets/instancenav/val/val_text.json.gz`（PSL文本属性）和
+`data/datasets/instance_imagenav_hm3d_v3/val/content/`（InstanceImageNav任务分片）。
+如果下载在其他目录，指定原文件位置即可：
+
+```bash
+python tools/restore_instance100.py \
+  --attributes /path/to/instancenav/val/val_text.json.gz \
+  --content /path/to/instance_imagenav_hm3d_v3/val/content
+```
+
+输出到启动器使用的 `data/datasets/instancenav/val10/val10.json.gz`，并安装配套manifest。
+工具沿用原采样程序的 seed=77、fraction=0.1，在临时文件中重建；只有任务身份、
+执行顺序和完整文件 SHA256 都与 Git 中冻结清单一致，才替换本地子集。全量数据版本
+不一致会报错，不会悄悄换成另一批100任务。只检查已有子集可用：
+
+```bash
+python tools/restore_instance100.py --verify-only
+```
+
+HM3D场景、模型权重和API配置仍按上面的本地资源要求准备。
+五组消融的可移植启动命令和比较口径见 [100任务消融说明](reproduction/instance_ablation_100.md)。
+
 ## 当前实验设置
 
 - InstanceNav 固定 100 条，与源机相同；31 个 HM3D val 场景。
@@ -35,10 +70,10 @@
 ```bash
 cd /path/to/InstanceNav_AVS
 conda activate psgnav-instance
-CUDA_VISIBLE_DEVICES=1 bash scripts/run_instance100.sh --timestamp instance100_qwen35_run1
+bash scripts/run_instance100.sh --gpus 0,1 --timestamp instance100_qwen35_run1
 ```
 
-探索默认使用类别和完整实例描述。若要运行“类别引导探索＋完整描述实例核验”的消融，使用：
+当前启动器默认使用“类别引导探索＋完整描述实例核验”。也可显式指定：
 
 ```bash
 bash scripts/run_instance100.sh --enable-instance-description-for-exploration false \
@@ -46,7 +81,7 @@ bash scripts/run_instance100.sh --enable-instance-description-for-exploration fa
 ```
 
 也可设置环境变量 `ENABLE_INSTANCE_DESCRIPTION_FOR_EXPLORATION=false`，命令行参数优先。
-该开关只控制地标选择提示词是否加入实例描述，实例核验继续使用完整描述；默认 `true` 保持原行为。
+该开关只控制地标选择提示词是否加入实例描述，实例核验继续使用完整描述；当前启动器默认 `false`。
 可附加 `--check-only` 进行预检而不启动导航。开关值会写入各 GPU 日志和结构化运行头。
 
 ### 相对证据决策（S8）
