@@ -2,8 +2,8 @@
 # Evaluate PSG-Nav on the official CoIN-Bench sensor/task protocol:
 # 500 atomic steps, success = STOP within 0.25 m of a target view point, full instruction,
 # no user interaction, CoIN's own RGB (42 deg) / depth (79 deg) geometry.
-# Navigation switches default to the same values as scripts/run_instance100.sh, which this
-# script never calls or modifies. Relative evidence is InstanceNav-calibrated and stays off.
+# Restore the 20261108 CoIN A policy: description exploration and the match prompt.
+# InstanceNav's separate launcher/configuration is not changed.
 #
 # The default evaluation is a fixed 100-episode val_unseen subset tracked in git
 # (configs/coin_val_unseen_subset100_seed77.json: all 47 targets, then 53 more episodes, seed 77).
@@ -16,10 +16,10 @@
 #   bash scripts/run_coin.sh --subset 3 --gpu 2 # one sequential process (smoke runs)
 set -euo pipefail
 
-# Shared navigation defaults match scripts/run_instance100.sh.
+# CoIN A defaults; the other shared switches still match run_instance100.sh.
 : "${LANDMARK_COMPARISON_REPEATS:=1}"
 : "${LANDMARK_COMPARISON_WORKERS:=10}"
-: "${ENABLE_INSTANCE_DESCRIPTION_FOR_EXPLORATION:=false}"
+: "${ENABLE_INSTANCE_DESCRIPTION_FOR_EXPLORATION:=true}"
 : "${ENABLE_OBJECT_RELATIONS:=false}"
 : "${ENABLE_GROUP_LLM_FILTER:=true}"
 : "${ENABLE_ROOM_LLM_FILTER:=true}"
@@ -27,7 +27,7 @@ set -euo pipefail
 : "${INSTANCE_CONFIRMATION_THRESHOLD:=1}"
 : "${VERIFY_BEFORE_CANDIDATE:=false}"
 : "${INSTANCE_CONFIRMATION_MODE:=positive_match}"
-: "${INSTANCE_VERIFICATION_PROMPT:=match_strict_no}"
+: "${INSTANCE_VERIFICATION_PROMPT:=match}"
 : "${ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK:=false}"
 : "${PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY:=false}"
 : "${INSTANCE_COLLECT_ONLY:=false}"
@@ -77,8 +77,8 @@ Runs with no options: the 100 frozen val_unseen episodes on GPUs 0,1
   --check-only       Run tools/preflight_coin.py and exit
 
 Navigation switches take the same flags as scripts/run_instance100.sh, for example
-  --enable-instance-description-for-exploration BOOL   (default: false)
-  --instance-verification-prompt match|match_strict_no (default: match_strict_no)
+  --enable-instance-description-for-exploration BOOL   (default: true)
+  --instance-verification-prompt match|match_strict_no (default: match)
   --enable-instance-confirmation BOOL                  (default: true)
   --instance-confirmation-mode positive_match|contradiction
   --verify-before-candidate BOOL, --instance-confirmation-threshold N, --rag-mode N

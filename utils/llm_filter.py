@@ -439,10 +439,8 @@ Configurations to evaluate:
             'type': 'array', 'maxItems': count,
             'items': {'type': 'integer', 'minimum': 1, 'maximum': count},
         }
-        # Parasail's grammar rejects uniqueItems. The prompt and parser still require distinct indices.
-        if not (self.model_client.backend == 'openrouter'
-                and self.model_client.model == 'qwen/qwen3-vl-8b-instruct'):
-            plausible['uniqueItems'] = True
+        # Use one schema across models, including those that reject uniqueItems.
+        # These indices select a set; the parser validates them before deduplicating.
         format_spec = {
             'type': 'json_schema',
             'json_schema': {
@@ -479,7 +477,7 @@ Configurations to evaluate:
         raise ModelRequestError(f'Invalid LLM filter JSON for {count} items after 3 format attempts: {error}')
 
     def _parse_batch_filter_response(self, response: str, total_count: int) -> set:
-        """Accept only complete, unambiguous decisions; never infer from prose."""
+        """Validate selection indices, then normalize their unordered set."""
         text = response.strip()
         if text.startswith('```') and text.endswith('```'):
             text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.IGNORECASE)[:-3].strip()
@@ -493,8 +491,8 @@ Configurations to evaluate:
         if (not isinstance(indices, list)
                 or any(type(idx) is not int or not 1 <= idx <= total_count for idx in indices)):
             raise ValueError('plausible must contain integer indices within the batch')
-        if len(set(indices)) != len(indices):
-            raise ValueError('duplicate plausible indices')
+        # Repetition carries no rank or vote weight; other response arrays may
+        # be positional, so normalization belongs only in this parser.
         return {idx - 1 for idx in indices}
 
     def _parse_response(self, response: str) -> Tuple[bool, str]:

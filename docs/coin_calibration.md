@@ -1,8 +1,22 @@
 # CoIN 配置对齐与离线标定
 
-导航默认值：描述探索关闭、`match_strict_no`、FMM 内部停止距离。
-节点次数配置位于 `configs/dataset_categories.py`，停止距离配置位于
-`configs/coin_contextnav.yaml`。最终默认：**1 次、FMM 0.75 米，无类别覆盖**。
+## 当前配置：恢复 20261108 A 组（2026-11-11）
+
+CoIN 普通入口 `scripts/run_coin.sh` 默认开启描述探索、使用 `match`，
+停止方式为欧氏距离 0.75 m。类别名称保持原样，目标全走导航检测分支，
+书籍也要求最大三维跨度 > 0.4 m。节点初始门槛为 3；命中原场景图类别表时
+更新门槛（如 picture=4、plant=3），未命中时保留同一 worker 的上一门槛。
+这项任务顺序依赖是严格恢复历史行为，不是所有目标统一为 3。
+每个任务第一步的 `CoIN Policy` 日志记录赋值后的实际门槛。
+运行清单中的 `node_min_detections=null` 表示没有统一值，另记初始值和继承方式。
+
+只修改 CoIN 策略；InstanceNav 仍使用其原有入口、提示词和停止设置。
+沿用已有入口，不新增启动器。`scripts/run_continuous_evaluation.sh` 当前由用户用于
+InstanceNav 消融，不属于此次回归修改范围。不会自动运行新的测评。
+
+下面是 **20261109 的历史标定方案与结果**，不是当前导航默认值。
+历史标定使用描述探索关闭、`match_strict_no`、统一节点次数 1、FMM 0.75 m
+作为待完整测评的推荐组合；后续结果不支持把它直接视为 SR 改进。
 官方成功距离仍为 0.25 米、预算 500 原子动作，传感器与智能体几何保持官方配置。
 官方出处：<https://github.com/intelligolabs/CoIN/blob/master/config/experiments/uncertainty_objectnav_hm3d.yaml>。
 
@@ -17,7 +31,12 @@ plant、tv_monitor、book 走场景图目标分支。只有 CoIN book 节点豁�
 采集事件另存 `canonical_category`，运行 manifest 保存映射、节点门槛和停止规则。
 历史采集的 `match` 回答保留原版本。
 
-## 重放命令
+## 历史重放命令与版本约束
+
+当前导航已恢复 A 组，下面命令依赖的类别助手和场景图行为会随当前代码改变。
+不能直接用当前代码续写 `outputs/coin_calibration_20261109/`；复现原标定需先核对
+该目录 `source_calibration/`、`source_final/` 与 manifest 中的源文件版本。
+新行为的分析必须使用独立输出目录，旧指标与原始记录保持不变。
 
 输入默认为 `20261108_181523_1477518` collect-only r1/r2，各 100 次执行、共 47
 个不同目标实例。r3 无完成任务，不计入。

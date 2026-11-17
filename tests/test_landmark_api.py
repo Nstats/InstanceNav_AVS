@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from utils.instance_verifier import verify_candidates
 from utils.landmark_selector import LandmarkSelector
-from utils.model_client import ModelRequestError
+from utils.model_client import ModelClient, ModelOutputTruncatedError, ModelRequestError
 
 
 def test_pairwise_batch_preserves_all_votes_and_order():
@@ -16,7 +16,8 @@ def test_pairwise_batch_preserves_all_votes_and_order():
     selector._add_scenegraph_semantics_to_landmark=lambda landmark,sg:landmark
     selector._create_pairwise_comparison_prompt=lambda a,b,goal,i,j:f'{i}:{j}'
     captured=[]
-    selector.get_llm_responses=lambda prompts:captured.extend(prompts) or ['A']*len(prompts)
+    selector.model_client=SimpleNamespace(concurrency=4,
+        complete=lambda prompt,**_:captured.append(prompt) or 'A')
     landmarks=[{'win_count':0,'total_comparisons':0} for _ in range(3)]
     result=selector._compare_landmarks_pairwise(landmarks,None,'chair')
     assert len(captured)==9
@@ -118,3 +119,74 @@ def test_launcher_exports_exploration_description_switch(tmp_path, environment_v
                                 capture_output=True, text=True, timeout=10)
         assert result.returncode == 2, options
         assert not capture.exists()  # Reject invalid input before loading Python or models.
+
+
+def _comparison_selector(complete):
+    selector=LandmarkSelector.__new__(LandmarkSelector)
+    selector.agent=SimpleNamespace(goal_attributes=None)
+    selector._sample_scenegraph=lambda _: {'id':'s'}
+    selector._add_scenegraph_semantics_to_landmark=lambda landmark,sg:landmark
+    selector._create_pairwise_comparison_prompt=lambda a,b,goal,i,j:f'pair {i}:{j}'
+    selector.model_client=SimpleNamespace(concurrency=2,complete=complete)
+    return selector
+
+
+def test_truncated_comparison_is_retried_then_skipped(monkeypatch,capsys):
+    monkeypatch.setenv('LANDMARK_COMPARISON_REPEATS','1')
+    monkeypatch.delenv('LANDMARK_COMPARISON_WORKERS',raising=False)
+    calls=[]
+    def complete(prompt,**options):
+        calls.append(prompt)
+        assert 'max_tokens' not in options
+        if prompt.startswith('pair 0:1'):
+            raise ModelOutputTruncatedError('finish_reason=length',partial_answer='A'*900)
+        return 'B'
+    landmarks=[{'win_count':0,'total_comparisons':0} for _ in range(3)]
+    result=_comparison_selector(complete)._compare_landmarks_pairwise(landmarks,None,'chair')
+    assert sum(p.startswith('pair 0:1') for p in calls)==2
+    assert result['skipped_comparisons']==1
+    assert result['total_comparisons']==2
+    assert result['win_counts']=={0:0,1:0,2:2}
+    assert [lm['total_comparisons'] for lm in landmarks]==[1,1,2]
+    out=capsys.readouterr().out
+    assert out.count('[Landmark Comparison]')==2 and '"action": "skip"' in out
+    assert '"partial_answer_chars": 900' in out
+
+
+def test_invalid_comparison_reply_recovers_on_retry(monkeypatch):
+    monkeypatch.setenv('LANDMARK_COMPARISON_REPEATS','1')
+    replies=iter(['I think the first one','A'])
+    def complete(prompt,validator=None,**_):
+        reply=next(replies)
+        if validator is not None:validator(reply)
+        return reply
+    landmarks=[{'win_count':0,'total_comparisons':0} for _ in range(2)]
+    result=_comparison_selector(complete)._compare_landmarks_pairwise(landmarks,None,'chair')
+    assert result['skipped_comparisons']==0 and result['win_counts']=={0:1,1:0}
+
+
+def test_exhausted_api_retries_still_stop_the_run(monkeypatch):
+    monkeypatch.setenv('LANDMARK_COMPARISON_REPEATS','1')
+    def complete(prompt,**_):
+        raise ModelRequestError('timeout after 4 attempts',retry_exhausted=True)
+    landmarks=[{'win_count':0,'total_comparisons':0} for _ in range(2)]
+    with pytest.raises(ModelRequestError):
+        _comparison_selector(complete)._compare_landmarks_pairwise(landmarks,None,'chair')
+
+
+def test_truncation_error_carries_partial_answer():
+    client=ModelClient.__new__(ModelClient)
+    client.retries=0;client.backend='openai';client.api_key='k'
+    class Response:
+        status_code=200;ok=True;headers={}
+        def __enter__(self):return self
+        def __exit__(self,*_):return False
+        def json(self):
+            return {'choices':[{'finish_reason':'length','message':{'content':'AAAA'}}],
+                    'usage':{'completion_tokens':4096}}
+    client._session=lambda:SimpleNamespace(post=lambda *a,**k:Response())
+    client._json_decode_error=lambda response:False
+    client.url='u';client.timeout=1
+    with pytest.raises(ModelOutputTruncatedError) as info:
+        client._send({'model':'m'})
+    assert info.value.partial_answer=='AAAA' and not info.value.retry_exhausted

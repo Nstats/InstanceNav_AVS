@@ -40,6 +40,11 @@ class ModelRequestError(RuntimeError):
 class ModelOutputTruncatedError(ModelRequestError):
     """The caller may reduce its batch rather than accepting partial evidence."""
 
+    def __init__(self, message, *, retry_exhausted=False, partial_answer=None):
+        super().__init__(message, retry_exhausted=retry_exhausted)
+        # Diagnostic only; never treat partial text as an answer.
+        self.partial_answer = partial_answer if isinstance(partial_answer, str) else None
+
 
 class ModelClient:
     def __init__(self, server_port=None):
@@ -449,13 +454,15 @@ class ModelClient:
                             else:
                                 choice = data["choices"][0]
                                 if choice.get("finish_reason") not in (None, "stop"):
-                                    error_type = (ModelOutputTruncatedError
-                                                  if choice.get("finish_reason") == "length"
-                                                  else ModelRequestError)
-                                    raise error_type(
+                                    message = (
                                         f"Model response incomplete: finish_reason={choice.get('finish_reason')}, "
                                         f"completion_tokens={data.get('usage', {}).get('completion_tokens')}; "
                                         "check max tokens or provider filtering")
+                                    if choice.get("finish_reason") == "length":
+                                        raise ModelOutputTruncatedError(
+                                            message, partial_answer=(choice.get("message") or {}).get("content")
+                                            if isinstance(choice.get("message"), dict) else None)
+                                    raise ModelRequestError(message)
                                 answer = choice["message"]["content"]
                             if not isinstance(answer, str) or not answer.strip():
                                 raise ValueError("empty answer")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Manual, one-experiment launcher for the five planned InstanceNav ablations.
+"""Manual, one-experiment launcher for the planned InstanceNav ablations.
 
 --dry-run prints only; --check-only imports dependencies but never navigates or
 calls a model. Normal execution archives the configuration and owned runtime
@@ -17,6 +17,10 @@ import sys
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
+# The queue script only lists which launcher commands to run next. Editing it to queue
+# more runs must not change the fingerprint of the code under test, so it is neither
+# hashed nor archived. Nothing it contains reaches the navigation process.
+FINGERPRINT_EXCLUDE = {'scripts/run_continuous_evaluation.sh'}
 COMMON = {
     'LANDMARK_COMPARISON_REPEATS': '1', 'LANDMARK_COMPARISON_WORKERS': '10',
     'ENABLE_INSTANCE_DESCRIPTION_FOR_EXPLORATION': 'false',
@@ -27,6 +31,7 @@ COMMON = {
     'INSTANCE_CONFIRMATION_MODE': 'positive_match',
     'INSTANCE_VERIFICATION_PROMPT': 'match_strict_no',
     'INSTANCE_VERIFICATION_SCOPE': 'instance', 'INSTANCE_REJECTION_POLICY': 'none',
+    'INSTANCE_REJECTION_SCOPE': 'episode', 'ENABLE_CANDIDATE_APPROACH': 'true',
     'INSTANCE_VERIFICATION_RECORD_INPUTS': 'true',
     'ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK': 'false',
     'PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY': 'false', 'INSTANCE_COLLECT_ONLY': 'false',
@@ -39,16 +44,34 @@ VARIANTS = {
     'E3': {'INSTANCE_REJECTION_POLICY': 'no'},
     'E4': {'INSTANCE_REJECTION_POLICY': 'non_yes'},
     'E5': {'INSTANCE_CONFIRMATION_THRESHOLD': '2'},
+    # M7 (paper Table A, how far one negative answer reaches): a no/unknown releases the
+    # candidate for the current approach only; it is not excluded (B: this frame only,
+    # E3/E4: the whole episode).
+    'T0': {'INSTANCE_REJECTION_POLICY': 'non_yes', 'INSTANCE_REJECTION_SCOPE': 'approach'},
+    'T0no': {'INSTANCE_REJECTION_POLICY': 'no', 'INSTANCE_REJECTION_SCOPE': 'approach'},
+    # M7 (paper Table C, which candidates are approached): none (A0) or only those the
+    # VLM admits from where they are first seen (RA); B approaches every detection.
+    'A0': {'ENABLE_CANDIDATE_APPROACH': 'false'},
+    'RA': {'VERIFY_BEFORE_CANDIDATE': 'true'},
 }
+# Model behind every call (exploration and verification), as run_instance100.sh --vlm accepts it.
+# The default keeps the existing presets unchanged; another VLM is a separate comparison batch.
+VLMS = ('qwen3.5-flash', 'gemini-2.5-flash', 'qwen3-vl-8b-instruct')
 
 
-def settings(experiment):
-    return {**COMMON, **VARIANTS[experiment]}
+def common(vlm=COMMON['VLM']):
+    if vlm not in VLMS:
+        raise ValueError(f'VLM must be one of {", ".join(VLMS)}')
+    return {**COMMON, 'VLM': vlm}
 
 
-def launch_command(experiment, gpus, timestamp=None, resume=False):
+def settings(experiment, vlm=COMMON['VLM']):
+    return {**common(vlm), **VARIANTS[experiment]}
+
+
+def launch_command(experiment, gpus, timestamp=None, resume=False, vlm=COMMON['VLM']):
     cmd = ['bash', str(ROOT / 'scripts/run_instance100.sh')]
-    for key, value in settings(experiment).items():
+    for key, value in settings(experiment, vlm).items():
         cmd.extend(['--' + key.lower().replace('_', '-'), value])
     cmd.extend(['--gpus', gpus])
     if timestamp:
@@ -66,6 +89,8 @@ def source_inventory():
     paths = set()
     for name in filter(None, names):
         p = Path(name)
+        if name in FINGERPRINT_EXCLUDE:
+            continue
         if ((len(p.parts) == 1 and p.suffix in {'.py', '.yml', '.yaml'}) or
                 (p.parts[0] in {'utils', 'configs', 'graph', 'scripts', 'tools'}
                  and p.suffix in {'.py', '.sh', '.json', '.yaml', '.yml'})):
@@ -85,7 +110,7 @@ def source_inventory():
 def archive_run(args, cmd, directory, inventory):
     paths, hashes, submodules, digest = inventory
     manifest_path = directory / 'manifest.json'
-    identity = {'experiment': args.experiment, 'settings': settings(args.experiment),
+    identity = {'experiment': args.experiment, 'settings': settings(args.experiment, args.vlm),
                 'source_digest': digest, 'python': str(Path(sys.executable).resolve()),
                 'gpus': args.gpus, 'timestamp': args.timestamp}
     if args.resume:
@@ -98,7 +123,7 @@ def archive_run(args, cmd, directory, inventory):
     if directory.exists() or (ROOT / f'data/results_instancenav_{args.timestamp}').exists():
         raise ValueError('Timestamp already exists; use --resume or a new timestamp')
     suite_path = ROOT / 'outputs/instance_ablation_runs' / args.suite / 'suite.json'
-    suite_identity = {'source_digest': digest, 'python': identity['python'], 'common': COMMON}
+    suite_identity = {'source_digest': digest, 'python': identity['python'], 'common': common(args.vlm)}
     if suite_path.exists():
         if json.loads(suite_path.read_text()) != suite_identity:
             raise ValueError('Suite source/configuration changed; restore it or select a new --suite for a new comparison batch')
@@ -123,6 +148,8 @@ def main():
     parser.add_argument('--timestamp')
     parser.add_argument('--suite', default='avs5_20261110')
     parser.add_argument('--resume', action='store_true')
+    parser.add_argument('--vlm', default=COMMON['VLM'], choices=VLMS,
+                        help='model for all calls; part of the run settings and the suite identity')
     parser.add_argument('--check-only', action='store_true')
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
@@ -133,12 +160,12 @@ def main():
         parser.error('--gpus requires two distinct IDs, e.g. 0,1')
     if not args.timestamp and (args.resume or not (args.check_only or args.dry_run)):
         parser.error('--timestamp is required for evaluation/resume')
-    cmd = launch_command(args.experiment, args.gpus, args.timestamp, args.resume)
+    cmd = launch_command(args.experiment, args.gpus, args.timestamp, args.resume, args.vlm)
     if args.dry_run:
-        print(json.dumps({'experiment': args.experiment, 'settings': settings(args.experiment),
+        print(json.dumps({'experiment': args.experiment, 'settings': settings(args.experiment, args.vlm),
                           'command': cmd}, indent=2))
         return 0
-    env = {**os.environ, **settings(args.experiment), 'PSGNAV_PYTHON': sys.executable,
+    env = {**os.environ, **settings(args.experiment, args.vlm), 'PSGNAV_PYTHON': sys.executable,
            'INSTANCE_ABLATION_ID': args.experiment}
     for legacy in ('ENABLE_CONTRADICTION_CHECK', 'ENABLE_INSTANCE_CONFIRMATION_BEFORE_FIND_GOAL'):
         env.pop(legacy, None)

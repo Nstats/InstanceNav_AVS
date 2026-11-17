@@ -21,7 +21,7 @@ set -euo pipefail
 unset ENABLE_INSTANCE_CONFIRMATION_BEFORE_FIND_GOAL
 # 同一候选的正式核验有效通过次数；所有类别统一，达到阈值即锁定。总开关关闭时不生效。
 : "${INSTANCE_CONFIRMATION_THRESHOLD:=1}"  # --instance-confirmation-threshold
-: "${INSTANCE_CONFIRMATION_COUNT_UNIT:=detection}"  # --instance-confirmation-count-unit
+: "${INSTANCE_CONFIRMATION_COUNT_UNIT:=frame}"  # --instance-confirmation-count-unit
 # 独立的候选准入核验；准入结果不计锁定票，近距离锁定核验另行调用。
 : "${VERIFY_BEFORE_CANDIDATE:=false}"  # --verify-before-candidate
 # INSTANCE_CONFIRMATION_MODE (--instance-confirmation-mode) 的两种选择（实例确认总开关开启时生效）：
@@ -34,7 +34,11 @@ unset ENABLE_INSTANCE_CONFIRMATION_BEFORE_FIND_GOAL
 : "${INSTANCE_VERIFICATION_PROMPT:=match_strict_no}"  # --instance-verification-prompt
 : "${INSTANCE_VERIFICATION_SCOPE:=instance}"  # --instance-verification-scope
 : "${INSTANCE_REJECTION_POLICY:=none}"  # --instance-rejection-policy
-: "${INSTANCE_VERIFICATION_RECORD_INPUTS:=false}"  # --instance-verification-record-inputs
+# 被拒绝的候选持续多久：episode（默认，E3/E4：整个任务内排除）或 approach（T0：只在本次接近内放下，不排除）。
+: "${INSTANCE_REJECTION_SCOPE:=episode}"  # --instance-rejection-scope
+# 未确认候选是否打断探索、成为导航目标。false 为 A0：只在路过核验距离内时核验，yes 后照常锁定。
+: "${ENABLE_CANDIDATE_APPROACH:=true}"  # --enable-candidate-approach
+: "${INSTANCE_VERIFICATION_RECORD_INPUTS:=true}"  # --instance-verification-record-inputs
 # 独立复验开关：仅用于 positive_match，且要求实例确认总开关开启。
 # true：正式确认前，将当前及同一候选的全部历史正面观测一次性多图复验。
 # false：不做这次额外复验（默认）；与上面的 contradiction 主确认方式不同。
@@ -94,7 +98,7 @@ Options:
                                     Required passing verification count for every category (default: 1)
                                     Applies only when instance confirmation is enabled
   --instance-confirmation-count-unit NAME
-                                    detection (legacy default) or frame (one vote per candidate/frame)
+                                    frame (default, one vote per candidate/frame) or detection (legacy)
   --verify-before-candidate BOOL    Independent candidate-admission check (default: false)
                                     Admission passes never count as confirmation votes
   --instance-confirmation-mode MODE
@@ -106,8 +110,11 @@ Options:
   --instance-verification-scope NAME
                                     instance (default) or category
   --instance-rejection-policy NAME  none (default), no, or non_yes; episode-local permanent rejection
+  --instance-rejection-scope NAME   episode (default) or approach; approach releases a rejected
+                                    candidate for the current approach only (T0)
+  --enable-candidate-approach BOOL  Unconfirmed candidates become the navigation goal (default: true)
   --instance-verification-record-inputs BOOL
-                                    Save exact request/image evidence (default: false)
+                                    Save exact request/image evidence (default: true)
   --enable-post-confirmation-contradiction-check BOOL
                                     true/false/1/0/yes/no (default: false)
                                     Recheck a positive match using all its positive views
@@ -250,7 +257,7 @@ while (( $# > 0 )); do
       INSTANCE_VERIFICATION_PROMPT="$2"
       shift 2
       ;;
-    --instance-verification-scope|--instance-rejection-policy|--instance-verification-record-inputs|--instance-confirmation-count-unit)
+    --instance-verification-scope|--instance-rejection-policy|--instance-rejection-scope|--instance-verification-record-inputs|--instance-confirmation-count-unit|--enable-candidate-approach)
       require_option_value "$1" "${2:-}"
       ablation_name="${1#--}"
       ablation_name="${ablation_name//-/_}"
@@ -352,6 +359,12 @@ normalize_bool_var ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK
 normalize_bool_var PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY
 normalize_bool_var INSTANCE_COLLECT_ONLY
 normalize_bool_var INSTANCE_VERIFICATION_RECORD_INPUTS
+normalize_bool_var ENABLE_CANDIDATE_APPROACH
+INSTANCE_REJECTION_SCOPE="${INSTANCE_REJECTION_SCOPE,,}"
+case "$INSTANCE_REJECTION_SCOPE" in
+  episode|approach) ;;
+  *) echo 'INSTANCE_REJECTION_SCOPE must be episode or approach' >&2; exit 2 ;;
+esac
 normalize_bool_var ENABLE_RELATIVE_EVIDENCE
 normalize_bool_var RELATIVE_EVIDENCE_USE_U
 normalize_bool_var RELATIVE_EVIDENCE_EARLY_STOP
@@ -436,6 +449,7 @@ export VERIFY_BEFORE_CANDIDATE
 export INSTANCE_CONFIRMATION_MODE
 export INSTANCE_VERIFICATION_PROMPT
 export INSTANCE_VERIFICATION_SCOPE INSTANCE_REJECTION_POLICY INSTANCE_VERIFICATION_RECORD_INPUTS
+export INSTANCE_REJECTION_SCOPE ENABLE_CANDIDATE_APPROACH
 export ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK
 export PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY
 export INSTANCE_COLLECT_ONLY
@@ -515,6 +529,8 @@ if (( check_only )); then
   echo "INSTANCE_VERIFICATION_PROMPT: ${INSTANCE_VERIFICATION_PROMPT}"
   echo "INSTANCE_VERIFICATION_SCOPE: ${INSTANCE_VERIFICATION_SCOPE}"
   echo "INSTANCE_REJECTION_POLICY: ${INSTANCE_REJECTION_POLICY}"
+  echo "INSTANCE_REJECTION_SCOPE: ${INSTANCE_REJECTION_SCOPE}"
+  echo "ENABLE_CANDIDATE_APPROACH: ${ENABLE_CANDIDATE_APPROACH}"
   echo "INSTANCE_VERIFICATION_RECORD_INPUTS: ${INSTANCE_VERIFICATION_RECORD_INPUTS}"
   echo "ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK: ${ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK}"
   echo "PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY: ${PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY}"
@@ -553,6 +569,8 @@ run_worker() {
     echo "INSTANCE_VERIFICATION_PROMPT: ${INSTANCE_VERIFICATION_PROMPT}"
     echo "INSTANCE_VERIFICATION_SCOPE: ${INSTANCE_VERIFICATION_SCOPE}"
     echo "INSTANCE_REJECTION_POLICY: ${INSTANCE_REJECTION_POLICY}"
+    echo "INSTANCE_REJECTION_SCOPE: ${INSTANCE_REJECTION_SCOPE}"
+    echo "ENABLE_CANDIDATE_APPROACH: ${ENABLE_CANDIDATE_APPROACH}"
     echo "INSTANCE_VERIFICATION_RECORD_INPUTS: ${INSTANCE_VERIFICATION_RECORD_INPUTS}"
     echo "ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK: ${ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK}"
     echo "PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY: ${PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY}"
@@ -634,6 +652,8 @@ run_dual() {
   echo "INSTANCE_VERIFICATION_PROMPT: ${INSTANCE_VERIFICATION_PROMPT}"
   echo "INSTANCE_VERIFICATION_SCOPE: ${INSTANCE_VERIFICATION_SCOPE}"
   echo "INSTANCE_REJECTION_POLICY: ${INSTANCE_REJECTION_POLICY}"
+  echo "INSTANCE_REJECTION_SCOPE: ${INSTANCE_REJECTION_SCOPE}"
+  echo "ENABLE_CANDIDATE_APPROACH: ${ENABLE_CANDIDATE_APPROACH}"
   echo "INSTANCE_VERIFICATION_RECORD_INPUTS: ${INSTANCE_VERIFICATION_RECORD_INPUTS}"
   echo "ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK: ${ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK}"
   echo "PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY: ${PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY}"
@@ -764,6 +784,8 @@ exec 3>&1
   echo "INSTANCE_VERIFICATION_PROMPT: ${INSTANCE_VERIFICATION_PROMPT}"
   echo "INSTANCE_VERIFICATION_SCOPE: ${INSTANCE_VERIFICATION_SCOPE}"
   echo "INSTANCE_REJECTION_POLICY: ${INSTANCE_REJECTION_POLICY}"
+  echo "INSTANCE_REJECTION_SCOPE: ${INSTANCE_REJECTION_SCOPE}"
+  echo "ENABLE_CANDIDATE_APPROACH: ${ENABLE_CANDIDATE_APPROACH}"
   echo "INSTANCE_VERIFICATION_RECORD_INPUTS: ${INSTANCE_VERIFICATION_RECORD_INPUTS}"
   echo "ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK: ${ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK}"
   echo "PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY: ${PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY}"

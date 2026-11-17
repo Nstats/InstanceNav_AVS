@@ -23,6 +23,8 @@ from configs.navigation_config import (
     relative_evidence_enabled,
     validate_relative_evidence,
     instance_rejection_policy,
+    instance_rejection_scope,
+    candidate_approach_enabled,
     validate_instance_ablation,
     instance_confirmation_count_unit,
 )
@@ -98,9 +100,15 @@ class ObjectDetectionManager:
         self._post_frame_tracks = []
         self._post_goal_track_id = None
         self._post_possible_track_id = None
-        from utils.instance_evidence import RecoveryEvidenceGuard
+        from utils.instance_evidence import RecoveryEvidenceGuard, ApproachReleases
         self._recovery_guard = RecoveryEvidenceGuard()
         self._recovery_decisions = {}
+        # T0 (INSTANCE_REJECTION_SCOPE=approach): releases that end with the approach.
+        self._approach_releases = ApproachReleases()
+        # Approach logging only; never read by the policy.
+        self._approach_track_id = None
+        self._approach_count = 0
+        self._approach_reached_ids = set()
         # Collect-only mode (S6): tracks whose intended lock was logged; never approached again.
         self._collect_retired = set()
         self._collect_retired_gps = []
@@ -197,6 +205,7 @@ class ObjectDetectionManager:
         }, **fields)
 
     def reset_post_confirmation_progress(self, *, reason='unspecified', preserve=False):
+        self.log_approach_end(f'reset_{reason}')
         if getattr(self, '_positive_evidence', None) is not None:
             counts = {str(track.track_id): len(track.votes) for track in self._positive_evidence.tracks}
             active_id = self._post_goal_track_id
@@ -646,9 +655,25 @@ class ObjectDetectionManager:
         vetoes = []
         veto_indices = set()
         veto_answers = {}
+        # T0: a rejection lasts only for the current approach, not the episode.
+        approach_scope = rejection_policy != 'none' and instance_rejection_scope() == 'approach'
+        releases = getattr(self, '_approach_releases', None) if approach_scope else None
+        if releases is not None:
+            # Expire before marking this frame as seen: a candidate that left the view
+            # and comes back after the agent moved starts a new approach in this frame.
+            for entry in releases.expire(self.agent.total_steps, self._agent_position()):
+                log_instance_verification(
+                    'approach_release_end', context=context, released_step=entry['step'],
+                    answer=entry['answer'], moved_m=round(entry['moved_m'], 3),
+                    out_of_view_steps=self.agent.total_steps - entry['last_seen'],
+                    node_id=str(entry['node_id']) if entry['node_id'] is not None else None,
+                    gps=entry['gps'].tolist() if entry['gps'] is not None else None)
+            releases.mark_seen(candidates, self._candidate_matches, self.agent.total_steps)
 
         def rejected(candidate):
             if self._instance_was_rejected(candidate):
+                return True
+            if releases is not None and releases.matching(candidate, self._candidate_matches):
                 return True
             return any(self._candidate_matches(candidate, veto) for veto in vetoes)
 
@@ -688,7 +713,8 @@ class ObjectDetectionManager:
         if len(active) != len(boxes):
             log_instance_verification('history_skip', context=context,
                                       skipped_box_indices=[i for i in range(len(boxes)) if i not in active],
-                                      reason='previous_contradiction' if conflict else 'permanent_rejection',
+                                      reason=('previous_contradiction' if conflict else
+                                              'approach_release' if approach_scope else 'permanent_rejection'),
                                       rejection_policy=rejection_policy)
         # Admission is independent: passing it never produces a confirmation vote.
         # With admission disabled, detector proposals may be approached directly.
@@ -706,6 +732,9 @@ class ObjectDetectionManager:
         # API call/invalid response must not create votes or partial veto history.
         for index in sorted(veto_indices):
             candidate = candidates[index]
+            if approach_scope:
+                self._release_for_approach(candidate, veto_answers[index], context, index)
+                continue
             self.agent.instance_rejections.append({**candidate, 'step': self.agent.total_steps,
                                                   'decision': veto_answers[index],
                                                   'policy': 'contradiction' if conflict else rejection_policy})
@@ -718,7 +747,8 @@ class ObjectDetectionManager:
                                           gps=candidate['gps'].tolist() if candidate['gps'] is not None else None)
         for index in sorted(veto_indices):
             candidate = candidates[index]
-            tag = 'Contradiction Reject' if conflict else 'Instance Reject'
+            tag = ('Contradiction Reject' if conflict else
+                   'Approach Release' if approach_scope else 'Instance Reject')
             print(f'[{tag}] node={candidate["node_id"]} gps={candidate["gps"]} '
                   f'box={index}')
             if candidate['gps'] is None and candidate['node_id'] is None:
@@ -751,7 +781,9 @@ class ObjectDetectionManager:
                     'node_id': str(c['node_id']) if c['node_id'] is not None else None,
                     'gps': c['gps'].tolist() if c['gps'] is not None else None,
                     'answer': decisions.get(i), 'history_skipped': i not in active,
-                    'permanently_rejected': rejected(c),
+                    # T0 releases end with the approach, so they are not permanent rejections.
+                    'permanently_rejected': rejected(c) and not approach_scope,
+                    **({'approach_released': rejected(c)} if approach_scope else {}),
                 } for i, c in enumerate(candidates)])
         self._emit_rejected_detections(boxes, kept, masks=masks,
                                       prediction_indices=prediction_indices,
@@ -855,6 +887,15 @@ class ObjectDetectionManager:
         return False
 
     def _set_post_possible_goal(self, tracks):
+        if not candidate_approach_enabled():
+            # A0: unconfirmed candidates never become the navigation goal. They are still
+            # verified when exploration passes within range, and a yes still locks.
+            if self.agent.found_possible_goal or self._post_possible_track_id is not None:
+                self.agent.found_possible_goal = False
+                self.agent.possible_goal_temp_gps = np.zeros(2)
+                self.agent.goal_map.fill(0)
+                self._post_possible_track_id = None
+            return
         pending = [track for track in tracks if self._post_candidate_is_available(track)
                    and self._candidate_can_be_approached(track)
                    and not self._is_collect_retired(track)
@@ -864,11 +905,53 @@ class ObjectDetectionManager:
             self.agent.found_possible_goal = True
             self.agent.possible_goal_temp_gps = track.gps.copy()
             self._post_possible_track_id = track.track_id
+            self._log_approach_target(track, tracks)
         elif self._post_possible_track_id in {track.track_id for track in tracks}:
             self.agent.found_possible_goal = False
             self.agent.possible_goal_temp_gps = np.zeros(2)
             self.agent.goal_map.fill(0)
             self._post_possible_track_id = None
+            self.log_approach_end('target_in_view_not_approachable')
+
+    def _log_approach_target(self, track, tracks):
+        """Log approach starts and switches; logging only, never read by the policy."""
+        previous = getattr(self, '_approach_track_id', None)
+        if previous == track.track_id:
+            return
+        from utils.instance_verifier import log_instance_verification
+        reached = getattr(self, '_approach_reached_ids', set())
+        self._approach_count = getattr(self, '_approach_count', 0) + 1
+        position = self._agent_position()
+        in_frame = {item.track_id for item in tracks}
+        log_instance_verification(
+            'approach_switch' if previous is not None else 'approach_start',
+            context={'episode': getattr(self.agent, 'count_episodes', None),
+                     'step': self.agent.total_steps, 'mode': 'approach_log'},
+            track_id=track.track_id, previous_track_id=previous,
+            previous_in_frame=(previous in in_frame) if previous is not None else None,
+            approach_index=self._approach_count, reselected_after_reach=track.track_id in reached,
+            distance_m=round(float(track.current['distance']), 3),
+            within_verification_range=bool(track.current['distance'] < self.agent.distance_threshold),
+            lock_passed=bool(track.current.get('lock_passed')),
+            candidates_in_frame=len(tracks), gps=track.gps.tolist(),
+            agent_gps=position.tolist() if position is not None else None)
+        self._approach_track_id = track.track_id
+
+    def log_approach_end(self, reason):
+        """The current approach target was dropped (reached, stuck, lock, ...); logging only."""
+        track_id = getattr(self, '_approach_track_id', None)
+        if track_id is None:
+            return
+        from utils.instance_verifier import log_instance_verification
+        if reason == 'reached':
+            self._approach_reached_ids = {*getattr(self, '_approach_reached_ids', set()), track_id}
+        position = self._agent_position()
+        log_instance_verification(
+            'approach_end', context={'episode': getattr(self.agent, 'count_episodes', None),
+                                     'step': self.agent.total_steps, 'mode': 'approach_log'},
+            track_id=track_id, reason=reason,
+            agent_gps=position.tolist() if position is not None else None)
+        self._approach_track_id = None
 
     def _record_scenegraph_confirmation_vote(self, track):
         if (instance_confirmation_count_unit() == 'frame'
@@ -919,6 +1002,7 @@ class ObjectDetectionManager:
                 self.agent.goal_gps = track.gps.copy()
                 self._post_goal_track_id = track.track_id
                 self._post_possible_track_id = None
+                self.log_approach_end('locked')
                 self._emit_goal_lock_once('scenegraph_post', track_id=track.track_id)
                 if self.preserve_evidence_on_recovery_enabled():
                     self._recovery_log('candidate_confirmed', track_id=track.track_id,
@@ -950,6 +1034,7 @@ class ObjectDetectionManager:
             self.agent.goal_gps = track.gps.copy()
             self._post_goal_track_id = track.track_id
             self._post_possible_track_id = None
+            self.log_approach_end('locked')
             self.agent.rag_latest_goal_detection = track.detection
             if self.agent.rag_check_enabled and track.detection is not None:
                 self._verify_detection_with_rag()
@@ -979,15 +1064,31 @@ class ObjectDetectionManager:
         return (first is not None and second is not None
                 and np.max(np.abs(np.asarray(first) - np.asarray(second))) <= self.agent.goal_merge_threshold)
 
-    def _clear_rejected_instance(self, candidate):
-        """Remove stale counts/targets for this veto, preserving other candidates."""
+    def _release_for_approach(self, candidate, answer, context, index):
+        """T0: drop this candidate for the current approach only; it is never vetoed."""
+        from utils.instance_verifier import log_instance_verification
+        position = self._agent_position()
+        self._approach_releases.release(candidate, answer, self.agent.total_steps, position)
+        self._clear_rejected_instance(candidate, permanent=False)
+        log_instance_verification('approach_release', context=context, box_index=index, answer=answer,
+                                  rejection_policy=instance_rejection_policy(),
+                                  node_id=str(candidate['node_id']) if candidate['node_id'] is not None else None,
+                                  gps=candidate['gps'].tolist() if candidate['gps'] is not None else None,
+                                  agent_gps=position.tolist() if position is not None else None)
+
+    def _clear_rejected_instance(self, candidate, permanent=True):
+        """Remove stale counts/targets for this veto, preserving other candidates.
+
+        permanent=False (T0) clears the same counts and navigation target but leaves the
+        track usable, so the candidate can be associated and approached again later.
+        """
         store = getattr(self, '_positive_evidence', None)
         rejected_tracks = set()
         if store is not None:
             for track in store.tracks:
                 if self._candidate_matches(candidate, {'node_id': track.node_id, 'gps': track.gps}):
                     track.votes.clear()
-                    track.vetoed = True
+                    track.vetoed = track.vetoed or permanent
                     rejected_tracks.add(track.track_id)
             # A graph ID can identify a veto even when this frame has no depth.
             if store.tracks:
@@ -1023,12 +1124,14 @@ class ObjectDetectionManager:
             self.agent.found_possible_goal = False
             self.agent.possible_goal_temp_gps = np.array([0., 0.])
             self._post_possible_track_id = None
+            self.log_approach_end('rejected' if permanent else 'approach_release')
         if clear_goal or clear_possible:
             self.agent.goal_map.fill(0)
             self.agent.rag_latest_goal_detection = None
             if hasattr(self.agent, '_temp_latest_detection'):
                 del self.agent._temp_latest_detection
-            self.agent.explanation = 'Candidate permanently rejected by the configured verification rule'
+            self.agent.explanation = ('Candidate permanently rejected by the configured verification rule'
+                                      if permanent else 'Candidate released for this approach (not excluded)')
 
     def _pixel_direction(self, x):
         """Horizontal angle (deg) of RGB column x; CoIN uses its own RGB intrinsics."""

@@ -7,6 +7,11 @@ import pytest
 
 from configs.navigation_config import validate_instance_ablation
 from tools.run_instance_ablation import settings, launch_command, archive_run, source_inventory
+from tools.run_instance_ablation import VARIANTS
+
+
+def launcher_variants():
+    return VARIANTS
 from test_instance_constraints import navigation, post_navigation, episode, Predictions, observe_navigation
 from test_instance_confirmation_controls import controls, observe_scenegraph
 from utils.instance_verifier import verify_candidates
@@ -178,7 +183,12 @@ def test_fixed_presets_differ_only_by_planned_variable():
                 'E2': {'INSTANCE_VERIFICATION_SCOPE': 'category'},
                 'E3': {'INSTANCE_REJECTION_POLICY': 'no'},
                 'E4': {'INSTANCE_REJECTION_POLICY': 'non_yes'},
-                'E5': {'INSTANCE_CONFIRMATION_THRESHOLD': '2'}}
+                'E5': {'INSTANCE_CONFIRMATION_THRESHOLD': '2'},
+                'T0': {'INSTANCE_REJECTION_POLICY': 'non_yes', 'INSTANCE_REJECTION_SCOPE': 'approach'},
+                'T0no': {'INSTANCE_REJECTION_POLICY': 'no', 'INSTANCE_REJECTION_SCOPE': 'approach'},
+                'A0': {'ENABLE_CANDIDATE_APPROACH': 'false'},
+                'RA': {'VERIFY_BEFORE_CANDIDATE': 'true'}}
+    assert set(expected) | {'B'} == set(launcher_variants())
     for experiment, diff in expected.items():
         assert {k: v for k, v in settings(experiment).items() if v != base[k]} == diff
         cmd = launch_command(experiment, '2,3', 'trial', True)
@@ -191,7 +201,8 @@ def test_manifest_blocks_mixed_sources_and_mismatched_resume(tmp_path, monkeypat
     (tmp_path / 'source.py').write_text('x = 1\n')
     monkeypatch.setattr(launcher.subprocess, 'check_output', lambda *a, **k: b'test-head')
     inventory = (['source.py'], {'source.py': 'digest'}, '', 'suite-digest')
-    args = SimpleNamespace(experiment='E3', gpus='0,1', timestamp='trial', suite='suite', resume=False)
+    args = SimpleNamespace(experiment='E3', gpus='0,1', timestamp='trial', suite='suite', resume=False,
+                           vlm='qwen3.5-flash')
     directory = tmp_path / 'outputs/instance_ablation_runs/suite/trial'
     path = archive_run(args, ['bash'], directory, inventory)
     assert path.exists() and (directory / 'source.tar.gz').exists()
@@ -203,3 +214,50 @@ def test_manifest_blocks_mixed_sources_and_mismatched_resume(tmp_path, monkeypat
     args.resume, args.timestamp = False, 'second'
     with pytest.raises(ValueError, match='Suite source'):
         archive_run(args, ['bash'], directory.parent / 'second', (*inventory[:3], 'changed'))
+
+
+def test_queue_script_edits_do_not_change_source_fingerprint(tmp_path, monkeypatch):
+    import tools.run_instance_ablation as launcher
+    monkeypatch.setattr(launcher, 'ROOT', tmp_path)
+    for name in ('utils/a.py', 'scripts/run_continuous_evaluation.sh', 'scripts/run_instance100.sh',
+                 'data/datasets/instancenav/val10/val10.json.gz',
+                 'data/datasets/instancenav/val10/val10.manifest.json'):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text('x\n')
+    listed = b'utils/a.py\0scripts/run_continuous_evaluation.sh\0scripts/run_instance100.sh\0'
+
+    def fake_check_output(cmd, **kwargs):
+        return listed if 'ls-files' in cmd else b''
+    monkeypatch.setattr(launcher.subprocess, 'check_output', fake_check_output)
+    paths, hashes, _, digest = launcher.source_inventory()
+    assert 'scripts/run_continuous_evaluation.sh' not in paths and 'scripts/run_continuous_evaluation.sh' not in hashes
+    (tmp_path / 'scripts/run_continuous_evaluation.sh').write_text('queue another run\n')
+    assert launcher.source_inventory()[3] == digest
+    (tmp_path / 'scripts/run_instance100.sh').write_text('changed\n')
+    assert launcher.source_inventory()[3] != digest
+
+
+def test_vlm_changes_only_the_model_and_the_suite_identity(tmp_path, monkeypatch):
+    import tools.run_instance_ablation as launcher
+    base = settings('B')
+    small = settings('B', 'qwen3-vl-8b-instruct')
+    assert {k: v for k, v in small.items() if v != base[k]} == {'VLM': 'qwen3-vl-8b-instruct'}
+    assert settings('E4', 'qwen3-vl-8b-instruct')['INSTANCE_REJECTION_POLICY'] == 'non_yes'
+    cmd = launch_command('E1', '0,1', 'trial', vlm='qwen3-vl-8b-instruct')
+    assert cmd[cmd.index('--vlm') + 1] == 'qwen3-vl-8b-instruct'
+    assert launch_command('B', '0,1', 'trial')[launch_command('B', '0,1', 'trial').index('--vlm') + 1] == 'qwen3.5-flash'
+    with pytest.raises(ValueError, match='VLM'):
+        settings('B', 'unknown-model')
+    # A suite started with one VLM refuses runs with another, even with identical source.
+    monkeypatch.setattr(launcher, 'ROOT', tmp_path)
+    (tmp_path / 'source.py').write_text('x = 1\n')
+    monkeypatch.setattr(launcher.subprocess, 'check_output', lambda *a, **k: b'test-head')
+    inventory = (['source.py'], {'source.py': 'digest'}, '', 'suite-digest')
+    args = SimpleNamespace(experiment='B', gpus='0,1', timestamp='first', suite='suite', resume=False,
+                           vlm='qwen3-vl-8b-instruct')
+    runs = tmp_path / 'outputs/instance_ablation_runs/suite'
+    manifest = json.loads(archive_run(args, ['bash'], runs / 'first', inventory).read_text())
+    assert manifest['settings']['VLM'] == 'qwen3-vl-8b-instruct'
+    args.timestamp, args.vlm = 'second', 'qwen3.5-flash'
+    with pytest.raises(ValueError, match='Suite source'):
+        archive_run(args, ['bash'], runs / 'second', inventory)

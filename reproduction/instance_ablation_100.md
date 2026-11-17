@@ -1,6 +1,8 @@
 # 五组 InstanceNav 消融：手动测评说明
 
-准备日期：2026-11-10。代码和启动入口已准备；**没有启动导航测评，也没有发送真实模型请求**。每次命令只运行指定的一组100任务，没有自动跑全套的入口。
+准备日期：2026-11-10，2026-11-11更新。每次命令只运行指定的一组100任务，没有自动跑全套的入口；连续运行几组时，把要跑的命令写进 [run_continuous_evaluation.sh](../scripts/run_continuous_evaluation.sh)，不跑的注释掉。
+
+**2026-11-11 批次变更：** 旧批次 `avs5_20261110` 中，E1、E2已完成且有效；E3第一轮 `avs5_E3_r1` 因两个进程同时写同一个运行时配置文件，GPU 0 进程读到空文件、按Habitat默认配置建图，整轮作废并已删除。修复见 [utils/runtime_config.py](../utils/runtime_config.py)：每个进程写独立配置文件，加载后与基础yaml逐项比对，不一致即退出。修复改变了源码指纹，旧批次不能续用；此后所有组在新批次 `avs5_fix_20261111` 中运行，命令须带 `--suite avs5_fix_20261111`。
 
 ## 启动命令
 
@@ -16,44 +18,42 @@ python tools/restore_instance100.py --verify-only
 按需逐条运行，前一组完成后再用同两张卡运行下一组。--gpus可以替换为其他两张卡。
 
 ```bash
-# E1：关闭实例核验，类别名探索保持不变
-bash scripts/run_instance_ablation.sh E1 --gpus 0,1 --timestamp avs5_E1_r1
+# 旧批次 avs5_20261110，已完成，不再运行：
+# E1：关闭实例核验，类别名探索保持不变（avs5_E1_r1）
+# E2：VLM只核类别，k=1，不永久排除（avs5_E2_r1）
 
-# E2：VLM只核类别，k=1，不永久排除
-bash scripts/run_instance_ablation.sh E2 --gpus 0,1 --timestamp avs5_E2_r1
+# 新批次 avs5_fix_20261111：
+# E0（启动器中为B）：同版本基准，完整实例核验，k=1，no/unknown均不永久排除
+bash scripts/run_instance_ablation.sh B --suite avs5_fix_20261111 --gpus 0,1 --timestamp avs5_E0_r2
 
 # E3：完整实例核验，明确no永久排除，unknown保留，k=1
-bash scripts/run_instance_ablation.sh E3 --gpus 0,1 --timestamp avs5_E3_r1
+bash scripts/run_instance_ablation.sh E3 --suite avs5_fix_20261111 --gpus 0,1 --timestamp avs5_E3_r2
 
 # E4：完整实例核验，no或unknown均永久排除，k=1
-bash scripts/run_instance_ablation.sh E4 --gpus 0,1 --timestamp avs5_E4_r1
+bash scripts/run_instance_ablation.sh E4 --suite avs5_fix_20261111 --gpus 0,1 --timestamp avs5_E4_r1
 
 # E5：完整实例核验，累计2次yes，不永久排除
-bash scripts/run_instance_ablation.sh E5 --gpus 0,1 --timestamp avs5_E5_r1
+bash scripts/run_instance_ablation.sh E5 --suite avs5_fix_20261111 --gpus 0,1 --timestamp avs5_E5_r1
 ```
 
-同版本基准B可单独手动运行，建议用它作本批直接对照，不用旧36/37/36自动替代：
-
-```bash
-bash scripts/run_instance_ablation.sh B --gpus 0,1 --timestamp avs5_B_r1
-```
+E0是本批直接对照，不用旧36/37/36自动替代。E1、E2来自旧批次，与新批次各组比较时须注明源码版本不同。
 
 ## 中断、检查与重复
 
 中断后保持同一个实验、时间戳、GPU与源码，增加--resume；已完成任务不重新跑：
 
 ```bash
-bash scripts/run_instance_ablation.sh E3 --gpus 0,1 --timestamp avs5_E3_r1 --resume
+bash scripts/run_instance_ablation.sh E3 --suite avs5_fix_20261111 --gpus 0,1 --timestamp avs5_E3_r2 --resume
 ```
 
 检查配置/依赖而不测评，或只打印完整命令：
 
 ```bash
 bash scripts/run_instance_ablation.sh E3 --check-only
-bash scripts/run_instance_ablation.sh E3 --timestamp avs5_E3_r1 --dry-run
+bash scripts/run_instance_ablation.sh E3 --suite avs5_fix_20261111 --timestamp avs5_E3_r2 --dry-run
 ```
 
---check-only不导航、不调用模型；它检查数据、模型文件、依赖和有效配置，但未验证远端API实时可用性。需要第二轮时另用r2时间戳，不用--resume代表新重复。本轮没有预定所有组重复3轮。
+--check-only不导航、不调用模型；它检查数据、模型文件、依赖和有效配置，但未验证远端API实时可用性。需要新的重复时另用新时间戳（如r3），不用--resume代表新重复。本轮没有预定所有组重复3轮。
 
 ## 已固定的实验条件
 
@@ -67,13 +67,13 @@ bash scripts/run_instance_ablation.sh E3 --timestamp avs5_E3_r1 --dry-run
 
 ## 输出位置与同版本约束
 
-以E3第一轮为例：
+以新批次的E3为例：
 
-- 合并结果：data/results_instancenav_avs5_E3_r1/experiment_0/results.txt。
-- 两卡日志：outputs/instancenav_val10_100_avs5_E3_r1_gpu0.log及gpu1.log。
+- 合并结果：data/results_instancenav_avs5_E3_r2/experiment_0/results.txt。
+- 两卡日志：outputs/instancenav_val10_100_avs5_E3_r2_gpu0.log及gpu1.log。日志中的 `[Runtime Config]` 行和Run Header的 `habitat_config` 记录智能体实际使用的Habitat配置（原子动作、深度视场角、相机位置等）。
 - 请求证据：日志同目录的同名前缀.verification/，其中events.jsonl关联images/中的实际输入图像。
-- 源码和配置归档：outputs/instance_ablation_runs/avs5_20261110/avs5_E3_r1/manifest.json、source.tar.gz。
-- 共同比较批次：outputs/instance_ablation_runs/avs5_20261110/suite.json。
+- 源码和配置归档：outputs/instance_ablation_runs/avs5_fix_20261111/avs5_E3_r2/manifest.json、source.tar.gz。
+- 共同比较批次：outputs/instance_ablation_runs/avs5_fix_20261111/suite.json。
 
 首次真正启动时才创建运行归档。归档包含本项目运行源码、配置和数据哈希，不复制模型权重、数据集或.env凭据；外部依赖仍使用本机环境，并记录子模块版本。代码在当前工作区执行，归档不代表隔离执行环境。
 
@@ -84,6 +84,7 @@ bash scripts/run_instance_ablation.sh E3 --timestamp avs5_E3_r1 --dry-run
 - 本机测评解释器：Python 3.9、PyTorch 2.7.0+cu118。
 - 子集恢复与指纹校验、核验/排除、候选与场景图路径、k票、恢复、原提示词兼容、启动配置和归档续跑测试：230通过、2跳过（完整公开源数据相关检查，非当前100任务预检）。
 - B与E1–E5的无API预检均通过，本机详细记录位于 outputs/instance_ablation_preparation_20261110/（不入Git）。
+- 2026-11-11 运行时配置修复后：全部测试527通过、2跳过（不含原有失败的relative-evidence测试）；19份现有配置文件均通过加载比对，空配置文件被拒绝；同时启动4个进程，各自得到独立配置文件且比对通过。新批次B、E3的命令经 --dry-run 核对。
 - 未进行真实导航烟测或远端API探测，正式测评由用户手动启动。
 
 另在扩大检查范围时遇到一个原有relative-evidence测试替身缺少collect_only_enabled方法的失败，使用HEAD版本的Agent方法亦复现。本批明确关闭relative evidence；未为该无关测试修改运行逻辑。

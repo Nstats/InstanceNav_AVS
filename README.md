@@ -95,6 +95,10 @@ bash scripts/run_instance100.sh \
 
 [scripts/run_coin.sh](scripts/run_coin.sh) 提供 CoIN-Bench 的独立评测入口，默认使用 `val_unseen` 的固定 100 条子集。其预算为 500 原子动作，官方成功要求 STOP 时距目标视点的测地距离 <0.25 m；不能沿用 InstanceNav 的距离与预算解释结果。
 
+CoIN 默认已恢复 20261108 的 A 组配置：描述参与探索、`match` 提示词、欧氏停止 0.75 m，
+原类别名与导航检测分支、旧场景图门槛及其跨任务继承。InstanceNav 配置不变。
+历史标定配置与当前默认值的区别见 [CoIN 配置说明](docs/coin_calibration.md)。
+
 ```bash
 bash scripts/run_coin.sh --check-only
 bash scripts/run_coin.sh --timestamp avs_coin_run1

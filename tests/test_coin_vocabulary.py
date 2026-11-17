@@ -121,18 +121,18 @@ def test_other_datasets_unchanged(glip):
 
 
 def test_coin_keeps_its_other_category_helpers():
-    assert dc.get_threshold('mirror', 'coin') == dc.COIN_DETECTION_OVERRIDES.get('mirror', dc.COIN_MIN_DETECTIONS)
-    assert dc.get_small_objects('coin') == ['plant', 'tv_monitor', 'book']
-    assert dc.dataset_to_unified_name('window glass', 'coin') == 'window'
+    assert dc.get_threshold('mirror', 'coin') == 3  # helper default, not the inherited runtime gate
+    assert dc.get_small_objects('coin') == []
+    assert dc.dataset_to_unified_name('window glass', 'coin') == 'window glass'
     assert dc.unified_to_dataset_name('window glass', 'coin') == 'window glass'
     assert dc.uses_episode_goal_categories('coin')
 
 
-@pytest.mark.parametrize('raw,canonical', list(dc.COIN_TO_UNIFIED.items()))
-def test_coin_mapping_preserves_raw_vocabulary(glip, raw, canonical):
-    assert dc.dataset_to_unified_name(raw, 'coin') == canonical
-    assert dc.goal_label_matches(raw, canonical, 'coin')
-    assert dc.unified_to_dataset_name(canonical, 'coin', original_category=raw) == raw
+@pytest.mark.parametrize('raw', sorted({word for words in EXPECTED.values() for word in words}))
+def test_coin_identity_mapping_preserves_raw_vocabulary(glip, raw):
+    assert dc.dataset_to_unified_name(raw, 'coin') == raw
+    assert dc.goal_label_matches(raw, raw, 'coin')
+    assert dc.unified_to_dataset_name(raw, 'coin', original_category=raw) == raw
     for split, words in EXPECTED.items():
         if raw in words:
             glip.set_episode_goal_category(raw, 'coin', split=split)
@@ -140,32 +140,42 @@ def test_coin_mapping_preserves_raw_vocabulary(glip, raw, canonical):
             assert glip.categories_21 == words + COIN_EXTRAS
 
 
-def test_coin_does_not_guess_ambiguous_reverse_or_merge_cabinets():
+def test_coin_restores_historical_whole_word_goal_matching():
     assert dc.unified_to_dataset_name('chair', 'coin') == 'chair'
-    assert dc.unified_to_dataset_name('chair', 'coin', original_category='armchair') == 'armchair'
-    assert not dc.goal_label_matches('cabinet', 'bathroom cabinet', 'coin')
+    assert dc.unified_to_dataset_name('armchair', 'coin') == 'armchair'
+    assert dc.goal_label_matches('cabinet', 'bathroom cabinet', 'coin')
+    assert dc.goal_label_matches('window', 'window glass', 'coin')
     assert not dc.goal_label_matches('cloth', 'clothes', 'coin')
+    assert not dc.goal_label_matches('chair', 'armchair', 'coin')
+    assert not dc.goal_label_matches('drawers', 'dresser', 'coin')
     with pytest.raises(ValueError):
         dc.unified_to_dataset_name('chair', 'coin', original_category='bed')
 
 
-def test_coin_node_gate_never_inherits_previous_goal():
+def test_coin_a_node_gate_keeps_worker_history_and_removes_book_exception():
     from graph.meta_func.io_func import IOFunc
     from omegaconf import DictConfig
     graph = IOFunc()
     graph.dataset, graph.node_space = 'coin', 'picture.'
-    graph.threshold_list = {'picture': 4, 'chair': 5}
-    graph.cfg = DictConfig({'obj_min_detections': 5})
-    for goal in ['picture', 'mirror', 'book', 'chair', 'tv_monitor', 'window']:
+    graph.threshold_list = {'picture': 4, 'plant': 3, 'chair': 5}
+    graph.cfg = DictConfig({'obj_min_detections': 3, 'extent_filter_exemptions': ['book']})
+    for goal, expected in [('mirror', 3), ('picture', 4), ('mirror', 4), ('book', 4),
+                           ('plant', 3), ('dresser', 3), ('chair', 5), ('window glass', 5)]:
         graph.set_obj_goal(goal, goal)
-        assert graph.cfg.obj_min_detections == dc.get_threshold(goal, 'coin')
+        assert graph.cfg.obj_min_detections == expected
+        assert graph.cfg.extent_filter_exemptions == []
+    metadata = dc.coin_policy_categories()
+    assert metadata['node_min_detections'] is None  # do not claim a global gate of 3
+    assert metadata['node_min_detections_initial'] == 3
+    assert metadata['node_min_detections_mode'] == 'category_table_then_keep_previous'
+    assert metadata['extent_filter_exemptions'] == []
     graph.dataset = 'instancenav'
     graph.cfg = DictConfig({'obj_min_detections': 3})
     graph.set_obj_goal('chair', 'chair')
     assert graph.cfg.obj_min_detections == 5
 
 
-def test_extent_exception_only_accepts_coin_books():
+def test_restored_coin_filters_small_books_without_affecting_optional_extent_filter():
     from omegaconf import DictConfig
     from utils.utils_sg_uq.merge_utils import filter_objects
     import numpy as np
@@ -175,13 +185,19 @@ def test_extent_exception_only_accepts_coin_books():
                 'detection_captions': [caption] * count}
     cfg = DictConfig({'obj_min_points': 0, 'obj_min_detections': 3})
     assert len(filter_objects(cfg, [obj('book')])) == 0
+    from graph.meta_func.io_func import IOFunc
+    graph = IOFunc()
+    graph.dataset, graph.node_space, graph.threshold_list, graph.cfg = 'coin', 'book.', {}, cfg
+    graph.set_obj_goal('book', 'book')
+    assert len(filter_objects(cfg, [obj('book')])) == 0
+    # The generic utility is unchanged; only CoIN stopped enabling this option.
     cfg.extent_filter_exemptions = ['book']
     kept = filter_objects(cfg, [obj('book'), obj('plant'), obj('book', 2)])
     assert len(kept) == 1 and kept[0]['detection_captions'] == ['book'] * 3
 
 
-@pytest.mark.parametrize('raw,expected', [('plant', 'scenegraph'), ('tv', 'scenegraph'),
-                                       ('book', 'scenegraph'), ('picture', 'navigation'),
+@pytest.mark.parametrize('raw,expected', [('plant', 'navigation'), ('tv', 'navigation'),
+                                       ('book', 'navigation'), ('picture', 'navigation'),
                                        ('mirror', 'navigation'), ('dresser', 'navigation')])
 def test_coin_goal_branch_still_runs_base_detector(raw, expected, monkeypatch):
     from utils.object_detection import ObjectDetectionManager

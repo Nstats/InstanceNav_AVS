@@ -124,6 +124,52 @@ class PositiveEvidenceStore:
             track.votes.clear()
 
 
+class ApproachReleases:
+    """Candidates released for the current approach only (INSTANCE_REJECTION_SCOPE=approach).
+
+    A released candidate is neither verified nor approached while its approach lasts.
+    The approach ends once the candidate has been out of the detector's view for
+    OUT_OF_VIEW_STEPS policy steps and the agent is at least MIN_MOVE_M from where it
+    was released; the candidate is then an ordinary candidate again. Nothing here is
+    permanent: an episode reset discards every entry.
+    """
+
+    OUT_OF_VIEW_STEPS = 5
+    MIN_MOVE_M = 1.0
+
+    def __init__(self):
+        self.entries = []
+
+    def release(self, candidate, answer, step, position):
+        entry = {'node_id': candidate['node_id'],
+                 'gps': None if candidate['gps'] is None else np.asarray(candidate['gps'], dtype=float).copy(),
+                 'answer': answer, 'step': step, 'last_seen': step,
+                 'position': None if position is None else np.asarray(position, dtype=float).copy()}
+        self.entries.append(entry)
+        return entry
+
+    def expire(self, step, position):
+        """Drop and return the entries whose approach has ended (call before mark_seen)."""
+        expired, kept = [], []
+        for entry in self.entries:
+            moved = (None if position is None or entry['position'] is None
+                     else float(np.linalg.norm(np.asarray(position, dtype=float) - entry['position'])))
+            if step - entry['last_seen'] >= self.OUT_OF_VIEW_STEPS and moved is not None and moved >= self.MIN_MOVE_M:
+                expired.append({**entry, 'moved_m': moved})
+            else:
+                kept.append(entry)
+        self.entries = kept
+        return expired
+
+    def matching(self, candidate, matches):
+        return [entry for entry in self.entries if matches(candidate, entry)]
+
+    def mark_seen(self, candidates, matches, step):
+        for entry in self.entries:
+            if any(matches(candidate, entry) for candidate in candidates):
+                entry['last_seen'] = step
+
+
 class RecoveryEvidenceGuard:
     """Navigation eligibility only; never removes semantic observations or votes."""
 

@@ -1199,11 +1199,17 @@ Example:
                     prompt = self._create_pairwise_comparison_prompt(lm_i, lm_j, goal_description, i, j)
                     prompts.append(self._with_instance_description(prompt) + '\nReturn exactly A or B. No explanation.')
                     jobs.append((i, j, round_idx, sampled_sg))
-        workers = landmark_comparison_workers()
-        responses = (self.get_llm_responses(prompts) if workers is None
-                     else self.get_llm_responses(prompts, max_workers=workers))
-        for (i, j, round_idx, sampled_sg), response in zip(jobs, responses):
-            winner = self._parse_comparison_winner(response, i, j)
+        workers = landmark_comparison_workers() or self.model_client.concurrency
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=max(1, min(workers, len(prompts)))) as pool:
+            winners = list(pool.map(lambda item: self._request_comparison(item[1], *item[0][:2]),
+                                    zip(jobs, prompts)))
+        comparison_results['skipped_comparisons'] = 0
+        for (i, j, round_idx, sampled_sg), winner in zip(jobs, winners):
+            if winner is None:
+                # Neither landmark gets a vote; win rates use the remaining comparisons.
+                comparison_results['skipped_comparisons'] += 1
+                continue
             landmarks[winner]['win_count'] += 1
             landmarks[i]['total_comparisons'] += 1
             landmarks[j]['total_comparisons'] += 1
@@ -1600,6 +1606,34 @@ Consider:
 Answer with exactly one letter: A or B. Do not include an explanation."""
 
         return prompt
+
+    def _request_comparison(self, prompt, idx_a, idx_b):
+        """One pairwise vote; a bad reply is retried once, then skipped (None).
+
+        Truncated, incomplete or non-A/B replies are rare per-request output
+        failures and must not end the episode. Exhausted transport retries mean
+        the API itself is unavailable, so those still propagate.
+        """
+        from utils.model_client import ModelRequestError
+        for attempt in (1, 2):
+            try:
+                # The validator keeps an invalid reply out of the exact cache so the
+                # retry is a real second request.
+                response = self.model_client.complete(
+                    prompt, validator=lambda value: self._parse_comparison_winner(value, 0, 1))
+                return self._parse_comparison_winner(response, idx_a, idx_b)
+            except ModelRequestError as error:
+                if error.retry_exhausted:
+                    raise
+                record = {'landmark_a': idx_a, 'landmark_b': idx_b, 'attempt': attempt,
+                          'action': 'retry' if attempt == 1 else 'skip',
+                          'error_type': type(error).__name__, 'error': str(error)}
+                partial = getattr(error, 'partial_answer', None)
+                if partial:
+                    record['partial_answer_head'] = partial[:500]
+                    record['partial_answer_chars'] = len(partial)
+                print('[Landmark Comparison] ' + json.dumps(record, ensure_ascii=False), flush=True)
+        return None
 
     def _parse_comparison_winner(self, response, idx_a, idx_b):
         """

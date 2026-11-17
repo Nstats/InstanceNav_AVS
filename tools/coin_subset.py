@@ -4,8 +4,9 @@
 Episodes are drawn from distinct targets first (each CoIN target has about ten
 start positions with one instruction), so a small subset covers as many target
 instances as possible. Output goes to data/runtime/coin/ (gitignored). The yaml
-stem is unique per (split, pool, count, seed) because PSG_Nav writes its runtime
-copy to /tmp/psgnav_runtime_configs/<stem>.<split>.yaml.
+stem is unique per (split, pool, count, seed), so subsets never overwrite each
+other's yaml; PSG_Nav then writes a private per-process copy of it to
+/tmp/psgnav_runtime_configs/<stem>.<split>.<pid>.yaml (utils/runtime_config.py).
 
 --pool draws the subset only from the episodes of a frozen pool file, such as
 configs/coin_val_unseen_subset100_seed77.json (tracked): count = pool size

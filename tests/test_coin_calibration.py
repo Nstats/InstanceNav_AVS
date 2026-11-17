@@ -117,8 +117,11 @@ def test_nonexact_restored_observations_are_excluded_from_stop_fitting(
 
 
 @pytest.mark.parametrize('caption,annotation,expected', [
-    ('drawers', 'dresser', True), ('tv', 'tv', True), ('clothes', 'hanging clothes', True),
-    ('chair', 'armchair', True), ('counter table', 'table', True),
+    # Current CoIN names are identity-mapped again; 20261109 artifacts retain
+    # their own source snapshot and must not be relabelled with today's helper.
+    ('drawers', 'dresser', False), ('dresser', 'dresser', True),
+    ('tv', 'tv', True), ('clothes', 'hanging clothes', True),
+    ('chair', 'armchair', False), ('counter table', 'table', True),
     ('picture', 'chair', False), ('book', 'wall', False),
 ])
 def test_real_object_with_wrong_caption_is_not_a_true_node(caption, annotation, expected):

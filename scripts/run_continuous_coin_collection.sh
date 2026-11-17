@@ -7,14 +7,14 @@ if (( $# > 1 )) || { (( $# == 1 )) && [[ "$1" != --check-only ]]; }; then
   echo 'Usage: bash scripts/run_continuous_coin_collection.sh [--check-only]' >&2
   exit 2
 fi
-export INSTANCE_VERIFICATION_PROMPT=match_strict_no
+export INSTANCE_VERIFICATION_PROMPT=match
 unset ENABLE_CONTRADICTION_CHECK
 options=(--split val_unseen --subset 100 --seed 77 --gpus 0,1
   --instance-collect-only true --enable-instance-confirmation true
   --instance-confirmation-threshold 1 --instance-confirmation-mode positive_match
   --verify-before-candidate false --enable-post-confirmation-contradiction-check false
   --preserve-positive-evidence-on-recovery false --rag-mode 0
-  --enable-instance-description-for-exploration false --enable-object-relations false
+  --enable-instance-description-for-exploration true --enable-object-relations false
   --enable-group-llm-filter true --enable-room-llm-filter true
   --landmark-comparison-repeats 1 --landmark-comparison-workers 10 --vlm qwen3.5-flash)
 export ENABLE_RELATIVE_EVIDENCE=false

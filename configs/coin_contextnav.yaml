@@ -3,8 +3,8 @@
 # success = STOP within 0.25 m geodesic of a target view point, RGB 512x512 HFOV 42,
 # depth 512x512 HFOV 79 (habitat-lab 0.2.4 default) 0-5 m, both at 1.31 m on a 1.41 m /
 # 0.17 m agent, sliding on. Full instruction, no user interaction.
-# Policy stopping uses the legacy Euclidean 0.75 m rule for the CoIN stop-metric
-# ablation; FMM still plans the path.
+# Restored 20261108 CoIN A policy: Euclidean stopping at 0.75 m;
+# FMM still plans the path.
 # This policy distance is separate from official success_distance. The SEMANTIC_SENSOR block is only attached by
 # tools/check_coin_protocol.py; the policy never receives it.
 SEED: 77

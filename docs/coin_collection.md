@@ -1,13 +1,14 @@
 # CoIN 三轮仅采集运行
 
-当前入口显式使用 `match_strict_no`、关闭描述探索，并沿用 CoIN 官方传感器设置。
-类别映射、场景图门槛和 FMM 停止配置见 [离线标定说明](coin_calibration.md)。
-20261108 的历史采集使用 `match` 和描述探索开启，原记录保持不变。
+2026-11-11 起，CoIN 入口恢复 A 组基础策略：`match`、开启描述探索、原类别名、
+空小物体集合、旧节点门槛表及跨任务继承、保留书籍尺寸过滤、欧氏停止 0.75 m。
+采集仍强制 `INSTANCE_COLLECT_ONLY=true`，不作为正式导航测评。
+官方传感器不变；20261108 历史采集及 20261109 标定记录保留原配置标注，
+参见 [配置与历史标定说明](coin_calibration.md)。
 
 手动启动（两卡 0、1，每轮固定的 100 个 val_unseen 起点，每个任务 500 个原子动作）：
 
 ```bash
-cd /path/to/InstanceNav_AVS
 bash scripts/run_continuous_coin_collection.sh
 ```
 

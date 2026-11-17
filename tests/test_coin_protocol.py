@@ -149,7 +149,7 @@ def test_coin_dataset_gates():
     assert get_categories('hm3d_ovon', 'window glass') == ['window glass']
     with pytest.raises(ValueError):
         get_categories('coin', 'window glass')
-    assert dataset_to_unified_name('hanging clothes', 'coin') == 'clothes'
+    assert dataset_to_unified_name('hanging clothes', 'coin') == 'hanging clothes'
     assert dataset_to_unified_name('hanging clothes', 'hm3d_ovon') == 'hanging clothes'
 
 
@@ -171,8 +171,11 @@ def _defaults(script):
 
 # CoIN-only settings (split, subset, seed) have no InstanceNav counterpart.
 COIN_ONLY = {'COIN_SPLIT', 'COIN_SUBSET', 'COIN_SEED'}
-# Shared policy defaults are aligned; official benchmark geometry remains separate.
-INTENDED_DIFFERENCES = {}
+# Only CoIN returns to the A policy; InstanceNav keeps its current defaults.
+INTENDED_DIFFERENCES = {
+    'ENABLE_INSTANCE_DESCRIPTION_FOR_EXPLORATION': ('true', 'false'),
+    'INSTANCE_VERIFICATION_PROMPT': ('match', 'match_strict_no'),
+}
 
 
 @pytest.mark.parametrize('radius', [0.25, 0.5, 0.75, 1.0])

@@ -6,8 +6,8 @@ This module defines object categories, thresholds, and mappings for HSSD ObjectN
 
 from configs.dataset_registry import is_open_vocabulary_dataset
 
-# Episode/split-driven vocabularies. CoIN keeps raw detector words separately
-# from its canonical policy names; OVON remains identity-mapped.
+# Episode/split-driven vocabularies. CoIN's restored 20261108 policy and OVON
+# both keep dataset category names unchanged.
 # The category list is the episode's goal for hm3d_ovon and the split's goal
 # categories (COIN_SPLIT_CATEGORIES) for coin.
 OPEN_VOCAB_EPISODE_DATASETS = ('hm3d_ovon', 'coin')
@@ -93,38 +93,24 @@ COIN_SPLIT_CATEGORIES = {
 # 'heater' is a val_seen goal and the same object as val_unseen's radiator.
 COIN_EXTRA_OBJECTS = ['curtain', 'oven', 'microwave', 'fireplace', 'piano']
 
-COIN_TO_UNIFIED = {
-    'tv': 'tv_monitor',
-    'dresser': 'chest_of_drawers',
-    'window glass': 'window',
-    'hanging clothes': 'clothes',
-    'heater': 'radiator',
-    'armchair': 'chair',
-}
-COIN_SMALL_OBJECTS = ('plant', 'tv_monitor', 'book')
-# 20261109 offline replay: 47 target groups, five-fold F1 improvement over 3.
-# Conditional proxy calibration; see docs/coin_calibration.md for limits.
-COIN_MIN_DETECTIONS = 1
-COIN_DETECTION_OVERRIDES = {}
-
-
 def coin_policy_categories():
-    """Serializable settings, shared by run manifests and runtime diagnostics."""
-    return {'category_mapping': dict(COIN_TO_UNIFIED),
-            'small_objects': list(COIN_SMALL_OBJECTS),
-            'node_min_detections': COIN_MIN_DETECTIONS,
-            'node_min_detections_overrides': dict(COIN_DETECTION_OVERRIDES),
-            'extent_filter_exemptions': ['book']}
+    """Describe the restored A policy without claiming a uniform node gate.
+
+    The actual gate is assigned by SceneGraph's historical category table;
+    absent keys keep the worker's previous value. CoIN Policy logs it per task.
+    """
+    return {'category_policy': 'legacy_20261108',
+            'category_mapping': {}, 'small_objects': [],
+            'node_min_detections': None,
+            'node_min_detections_initial': 3,
+            'node_min_detections_mode': 'category_table_then_keep_previous',
+            'node_threshold_table_source': 'graph.graph_class.SceneGraph.threshold_list',
+            'extent_filter_exemptions': []}
 
 
 def goal_label_matches(label, goal, dataset='hssd'):
-    """CoIN compares canonical phrases, without conflating cabinet subtypes.
-
-    Other datasets retain the historical word-level matching rule.
-    """
+    """Historical exact/whole-word matching, including CoIN's A policy."""
     label, goal = str(label).lower(), str(goal).lower()
-    if dataset.lower() == 'coin':
-        return dataset_to_unified_name(label.strip(), dataset) == dataset_to_unified_name(goal.strip(), dataset)
     return goal == label or goal in label.split() or label in goal.split()
 ROOM_CATEGORIES = [
     'bedroom', 'living room', 'bathroom', 'kitchen', 'dining room',
@@ -181,8 +167,6 @@ def get_small_objects(dataset='hssd'):
     Get HSSD small object categories in unified internal naming.
     """
     dataset = dataset.lower()
-    if dataset == 'coin':
-        return list(COIN_SMALL_OBJECTS)
     if dataset in OPEN_VOCAB_EPISODE_DATASETS:
         return []
     if dataset in ('hssd', 'instancenav'):
@@ -196,10 +180,6 @@ def get_threshold(category, dataset='hssd'):
     Get HSSD detection threshold for a category.
     """
     dataset = dataset.lower()
-
-    if dataset == 'coin':
-        category = dataset_to_unified_name(category, dataset)
-        return COIN_DETECTION_OVERRIDES.get(category, COIN_MIN_DETECTIONS)
 
     if dataset in OPEN_VOCAB_EPISODE_DATASETS:
         return 3
@@ -216,7 +196,7 @@ def unified_to_dataset_name(category, dataset='hssd', *, original_category=None)
     """
     dataset = dataset.lower()
     if dataset == 'coin':
-        # Never guess an inverse for e.g. chair/armchair or clothes/hanging clothes.
+        # CoIN is identity-mapped again; retain the explicit-origin API for logs.
         if original_category is not None:
             if dataset_to_unified_name(original_category, dataset) != dataset_to_unified_name(category, dataset):
                 raise ValueError(f'CoIN category mismatch: {original_category!r} vs {category!r}')
@@ -234,8 +214,6 @@ def dataset_to_unified_name(category, dataset='hssd'):
     Convert HSSD category name to unified category name.
     """
     dataset = dataset.lower()
-    if dataset == 'coin':
-        return COIN_TO_UNIFIED.get(category, category)
     if dataset in OPEN_VOCAB_EPISODE_DATASETS:
         return category
     if dataset in ('hssd', 'instancenav'):

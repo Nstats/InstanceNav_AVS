@@ -140,6 +140,30 @@ def instance_rejection_policy():
     return value
 
 
+def instance_rejection_scope():
+    """How long a rejection under INSTANCE_REJECTION_POLICY lasts.
+
+    episode: the candidate is excluded for the rest of the episode (E3, E4).
+    approach: the candidate is only released for the current approach (T0). It is neither
+    verified nor approached again until it has been out of the detector's view for
+    APPROACH_RELEASE_OUT_OF_VIEW_FRAMES frames and the agent has moved
+    APPROACH_RELEASE_MIN_MOVE_M from where it was released; then it is a candidate again.
+    """
+    value = (_raw('INSTANCE_REJECTION_SCOPE') or 'episode').lower()
+    if value not in {'episode', 'approach'}:
+        raise ValueError('INSTANCE_REJECTION_SCOPE must be episode or approach')
+    return value
+
+
+def candidate_approach_enabled():
+    """false (A0): unconfirmed candidates never become the navigation goal.
+
+    Candidates are still verified whenever the agent happens to pass within the
+    verification distance, and a yes still locks and navigates to the goal.
+    """
+    return env_bool('ENABLE_CANDIDATE_APPROACH', True)
+
+
 def instance_confirmation_count_unit():
     value = (_raw('INSTANCE_CONFIRMATION_COUNT_UNIT') or 'detection').lower()
     if value not in {'detection', 'frame'}:
@@ -150,6 +174,14 @@ def instance_confirmation_count_unit():
 def validate_instance_ablation():
     """Fail before a run rather than silently combining incompatible semantics."""
     scope, policy = instance_verification_scope(), instance_rejection_policy()
+    rejection_scope, approach = instance_rejection_scope(), candidate_approach_enabled()
+    if rejection_scope != 'episode' and policy == 'none':
+        raise ValueError('INSTANCE_REJECTION_SCOPE=approach requires INSTANCE_REJECTION_POLICY no or non_yes')
+    if not approach and (not instance_confirmation_enabled()
+                         or instance_confirmation_mode() != 'positive_match'
+                         or instance_collect_only_enabled() or relative_evidence_enabled()):
+        raise ValueError('ENABLE_CANDIDATE_APPROACH=false requires confirmation, positive_match, '
+                         'and collect-only and relative evidence disabled')
     if scope != 'instance' or policy != 'none':
         if not instance_confirmation_enabled() or instance_confirmation_mode() != 'positive_match':
             raise ValueError('Category/rejection ablations require confirmation and positive_match')
@@ -157,7 +189,8 @@ def validate_instance_ablation():
                 or relative_evidence_enabled() or post_confirmation_contradiction_check_enabled()):
             raise ValueError('Category/rejection ablations require admission, collect-only, '
                              'relative evidence and post check disabled')
-    return {'scope': scope, 'rejection_policy': policy, 'count_unit': instance_confirmation_count_unit(),
+    return {'scope': scope, 'rejection_policy': policy, 'rejection_scope': rejection_scope,
+            'candidate_approach': approach, 'count_unit': instance_confirmation_count_unit(),
             'record_inputs': env_bool('INSTANCE_VERIFICATION_RECORD_INPUTS', False)}
 
 

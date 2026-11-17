@@ -96,11 +96,13 @@ class PSG_Nav_Agent():
             'PSGNAV_VERBOSE',
         ]
         _toggle_names.extend(RELATIVE_EVIDENCE_TOGGLES)
+        from utils.runtime_config import config_summary
         log_event('Run Header', code_version=code_version(),
                   relative_evidence=relative_evidence_run_header(
                       rag_mode=getattr(args, 'rag_mode', 0), dataset=getattr(args, 'dataset', None)),
                   max_episode_steps=self.max_episode_steps,
                   rag_mode=getattr(args, 'rag_mode', None),
+                  habitat_config=config_summary(task_config),
                   toggles={name: os.environ[name] for name in _toggle_names
                            if name in os.environ})
 
@@ -492,13 +494,6 @@ class PSG_Nav_Agent():
         self.detection_manager.reset_instance_verification(self.simulator._env.current_episode)
 
         print(f"[Goal Conversion] Dataset goal: '{goal_from_episode}' -> Unified goal: '{self.obj_goal}'")
-        if self.dataset == 'coin':
-            from configs.dataset_categories import get_threshold, get_small_objects
-            log_event('CoIN Policy', raw_category=goal_from_episode, canonical_category=self.obj_goal,
-                      node_min_detections=get_threshold(self.obj_goal, 'coin'),
-                      detection_path='scenegraph' if self.obj_goal in get_small_objects('coin') else 'navigation',
-                      stop_metric=self.config.TASK.STOP_DISTANCE_METRIC,
-                      stop_distance_m=float(self.config.TASK.STOP_DISTANCE))
 
         # Set scene graph goal name (some objects use abbreviated names in SceneGraph)
         self.obj_goal_sg = self.obj_goal
@@ -629,6 +624,15 @@ class PSG_Nav_Agent():
         self.scenegraph.set_agent(self)
         self.scenegraph.set_navigate_steps(self.navigate_steps)
         self.scenegraph.set_obj_goal(self.obj_goal, self.obj_goal_sg)
+        if getattr(self, 'dataset', None) == 'coin' and self.total_steps == 1:
+            log_event('CoIN Policy', episode=self.count_episodes,
+                      category_policy='legacy_20261108',
+                      raw_category=self.dataset_goal_category, canonical_category=self.obj_goal,
+                      node_min_detections=self.scenegraph.cfg.obj_min_detections,
+                      node_min_detections_mode='category_table_then_keep_previous',
+                      detection_path='scenegraph' if self.obj_goal in self.scenegraph.small_objects else 'navigation',
+                      stop_metric=self.config.TASK.STOP_DISTANCE_METRIC,
+                      stop_distance_m=float(self.config.TASK.STOP_DISTANCE))
         self.scenegraph.set_room_map(self.room_map)
         self.scenegraph.set_fbe_free_map(self.fbe_free_map) # Frontier-based Exploration (occupancy map)
         self.scenegraph.set_observations(observations)
@@ -849,6 +853,10 @@ class PSG_Nav_Agent():
         # If found possible goal but can't reach it, clear it
         if self.found_possible_goal and number_action == 0:
             self.found_possible_goal = False
+            # Logging only: the planner has nothing left to do for this candidate.
+            manager = getattr(self, 'detection_manager', None)
+            if manager is not None and hasattr(manager, 'log_approach_end'):
+                manager.log_approach_end('reached')
 
         self.loop_time = 0
         max_recovery_attempts = 20
@@ -1807,40 +1815,8 @@ class PSG_Nav_Agent():
 
 
 def main():
-    def build_runtime_config_file(base_config_file, dataset_split):
-        base_path = Path(base_config_file)
-        runtime_dir = Path("/tmp/psgnav_runtime_configs")
-        runtime_dir.mkdir(parents=True, exist_ok=True)
-        generated_path = runtime_dir / f"{base_path.stem}.{dataset_split}{base_path.suffix}"
-
-        lines = base_path.read_text().splitlines()
-        in_dataset_block = False
-        replaced = False
-        new_lines = []
-
-        for line in lines:
-            stripped = line.strip()
-            if stripped == 'DATASET:':
-                in_dataset_block = True
-                new_lines.append(line)
-                continue
-
-            if in_dataset_block and stripped and not line.startswith('  '):
-                in_dataset_block = False
-
-            if in_dataset_block and stripped.startswith('SPLIT:'):
-                indent = line[: len(line) - len(line.lstrip())]
-                new_lines.append(f"{indent}SPLIT: {dataset_split}")
-                replaced = True
-                continue
-
-            new_lines.append(line)
-
-        if not replaced:
-            raise ValueError(f"Failed to inject DATASET.SPLIT into config: {base_config_file}")
-
-        generated_path.write_text("\n".join(new_lines) + "\n")
-        return str(generated_path)
+    from utils.runtime_config import (
+        assert_unchanged, build_runtime_config_file, config_summary, verify_loaded_config)
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -1923,7 +1899,8 @@ def main():
     # Select config file based on dataset argument
     base_config_file = args.config or get_dataset_config_path(args.dataset)
     dataset_split = args.dataset_split or get_default_dataset_split(args.dataset)
-    config_file = build_runtime_config_file(base_config_file, dataset_split)
+    # Private, atomically written copy per process (see utils/runtime_config.py).
+    config_file, config_sha256 = build_runtime_config_file(base_config_file, dataset_split)
 
     os.environ["CHALLENGE_CONFIG_FILE"] = config_file
     from configs.navigation_config import (
@@ -1962,7 +1939,12 @@ def main():
     print(f"Base config file: {base_config_file}")
     print(f"Runtime config file: {config_file}")
     config_paths = os.environ["CHALLENGE_CONFIG_FILE"]
+    assert_unchanged(config_paths, config_sha256)
     config = habitat.get_config(config_paths)
+    # An empty or partial yaml loads as Habitat defaults without error; refuse to run on it.
+    verify_loaded_config(config, base_config_file, dataset_split)
+    log_event('Runtime Config', base=str(base_config_file), path=config_paths,
+              sha256=config_sha256, verified=True, values=config_summary(config))
     import random
     random.seed(config.SEED)
     np.random.seed(config.SEED)
@@ -1973,6 +1955,7 @@ def main():
         return
 
 
+    assert_unchanged(config_paths, config_sha256)
     challenge = habitat.Challenge(
         eval_remote=False,
         split_l=args.split_l,

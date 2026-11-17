@@ -48,10 +48,10 @@ class IOFunc():
                 current_terms.append(obj_goal_sg)
                 self.node_space = '. '.join(current_terms) + '.'
         if getattr(self, 'dataset', None) == 'coin':
-            from configs.dataset_categories import get_threshold
-            self.cfg.obj_min_detections = get_threshold(self.obj_goal, 'coin')
-            self.cfg.extent_filter_exemptions = ['book']
-        elif self.obj_goal in self.threshold_list:
+            self.cfg.extent_filter_exemptions = []
+        # Historical A behavior: an unlisted goal retains this worker's previous
+        # gate. Do not reset it to 3 on task changes (picture=4, plant=3).
+        if self.obj_goal in self.threshold_list:
             self.cfg.obj_min_detections = self.threshold_list[self.obj_goal]
 
     def set_navigate_steps(self, navigate_steps):

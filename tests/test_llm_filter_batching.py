@@ -50,7 +50,9 @@ def prompt_items(payload):
 
 
 @pytest.mark.parametrize('kind', ['room', 'group'])
-def test_every_uncertain_candidate_is_filtered_and_batch_indices_map_back(llm_filter, monkeypatch, kind):
+@pytest.mark.parametrize('duplicate_response', [False, True])
+def test_every_uncertain_candidate_is_filtered_and_batch_indices_map_back(
+        llm_filter, monkeypatch, kind, duplicate_response):
     items = [candidate(i, 1. if i % 35 == 0 else .5) for i in range(73)]
     candidates = Candidates(items, kind)
     calls = []
@@ -59,7 +61,10 @@ def test_every_uncertain_candidate_is_filtered_and_batch_indices_map_back(llm_fi
         rows = prompt_items(payload)
         calls.append(rows)
         assert payload['response_format']['json_schema']['strict'] is True
-        return json.dumps({'plausible': [local for local, original in rows if original % 3 != 0]})
+        selected = [local for local, original in rows if original % 3 != 0]
+        if duplicate_response and selected:
+            selected = selected[::-1] + selected[:1]
+        return json.dumps({'plausible': selected})
 
     monkeypatch.setattr(llm_filter.model_client, '_send', send)
     method = llm_filter.filter_room_combinations if kind == 'room' else llm_filter.filter_enumerated_groups
@@ -113,6 +118,22 @@ def test_invalid_reply_is_retried_before_caching_and_valid_reply_is_reused(llm_f
     assert len(calls) == 2
 
 
+def test_duplicate_selections_are_accepted_without_retry_and_reused_from_cache(llm_filter, monkeypatch):
+    calls = []
+
+    def send(payload):
+        calls.append(payload)
+        return '{"plausible":[3,1,3]}'
+
+    monkeypatch.setattr(llm_filter.model_client, '_send', send)
+    items = [candidate(i) for i in range(3)]
+    for _ in range(2):
+        assert llm_filter._filter_batches(items, llm_filter._build_batch_group_filter_prompt) == {0, 2}
+    assert len(calls) == 1
+    assert len(llm_filter.model_client._cache) == 1
+    assert llm_filter.model_client.stats['cache_hits'] == 1
+
+
 def test_later_batch_failure_cannot_partially_filter_candidates(llm_filter, monkeypatch):
     def send(payload):
         if len(prompt_items(payload)) == 32:
@@ -153,6 +174,9 @@ def test_failed_calls_leave_candidates_and_stats_untouched(llm_filter, monkeypat
 @pytest.mark.parametrize('response,expected', [
     ('{"plausible":[]}', set()),
     ('{"plausible":[1,3]}', {0, 2}),
+    ('{"plausible":[3,1]}', {0, 2}),
+    ('{"plausible":[1,1]}', {0}),
+    ('{"plausible":[3,1,3]}', {0, 2}),
     ('[{"plausible":[2]}]', {1}),
     ('```json\n{"plausible":[2]}\n```', {1}),
 ])
@@ -162,7 +186,7 @@ def test_complete_decisions_include_empty_and_unambiguous_wrappers(llm_filter, r
 
 @pytest.mark.parametrize('response', [
     '{"plausible":[true]}', '{"plausible":[1.0]}', '{"plausible":["1"]}',
-    '{"plausible":[0]}', '{"plausible":[4]}', '{"plausible":[1,1]}',
+    '{"plausible":[0]}', '{"plausible":[4]}',
     '{"plausible":null}', '{"other":[1]}', '{"plausible":[1],"reason":"test"}',
     '[{"plausible":[1]},{"plausible":[2]}]', 'Reason 1: plausible.',
     '{"plausible":[1,',
@@ -172,23 +196,43 @@ def test_invalid_decisions_are_never_guessed(llm_filter, response):
         llm_filter._parse_batch_filter_response(response, 3)
 
 
-def test_openrouter_qwen3_vl_schema_omits_unsupported_unique_items(llm_filter, monkeypatch):
-    schemas = []
+@pytest.mark.parametrize('invalid', [True, 1.0, '1', 0, 4, None, [], {}])
+def test_invalid_elements_are_rejected_before_deduplication(llm_filter, invalid):
+    with pytest.raises(ValueError, match='integer indices within the batch'):
+        llm_filter._parse_batch_filter_response(
+            json.dumps({'plausible': [1, invalid, 1]}), 3)
+
+
+def test_models_share_filter_schema_without_unique_items(llm_filter, monkeypatch):
+    payloads = []
 
     def send(payload):
-        schemas.append(payload['response_format']['json_schema']['schema'])
+        payloads.append(payload)
         return '{"plausible":[1]}'
 
     monkeypatch.setattr(llm_filter.model_client, '_send', send)
     items = [candidate(0)]
-    llm_filter.filter_enumerated_groups(Candidates(items, 'group'))
-    assert schemas[0]['properties']['plausible']['uniqueItems'] is True
+    for backend, model in (
+            ('openai', 'qwen3.5-flash'),
+            ('openai', 'deepseek-v4.1-flash'),
+            ('openrouter', 'qwen/qwen3-vl-8b-instruct')):
+        llm_filter.model_client.backend = backend
+        llm_filter.model_client.model = model
+        llm_filter.filter_enumerated_groups(Candidates(items, 'group'))
 
-    llm_filter.model_client.backend = 'openrouter'
-    llm_filter.model_client.model = 'qwen/qwen3-vl-8b-instruct'
-    llm_filter.filter_enumerated_groups(Candidates(items, 'group'))
-    assert 'uniqueItems' not in schemas[1]['properties']['plausible']
-    assert schemas[1]['properties']['plausible']['maxItems'] == 1
+    assert len(payloads) == 3
+    assert {k: v for k, v in payloads[0].items() if k != 'model'} == {
+        k: v for k, v in payloads[1].items() if k != 'model'}
+    formats = [payload['response_format'] for payload in payloads]
+    assert formats[0] == formats[1] == formats[2]
+    assert formats[0]['json_schema']['strict'] is True
+    schema = formats[0]['json_schema']['schema']
+    assert schema['required'] == ['plausible']
+    assert schema['additionalProperties'] is False
+    assert schema['properties']['plausible'] == {
+        'type': 'array', 'maxItems': 1,
+        'items': {'type': 'integer', 'minimum': 1, 'maximum': 1},
+    }
 
 
 @pytest.mark.parametrize('kind', ['room', 'group'])
