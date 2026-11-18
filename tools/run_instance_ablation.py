@@ -21,6 +21,14 @@ ROOT = Path(__file__).resolve().parents[1]
 # more runs must not change the fingerprint of the code under test, so it is neither
 # hashed nor archived. Nothing it contains reaches the navigation process.
 FINGERPRINT_EXCLUDE = {'scripts/run_continuous_evaluation.sh'}
+# Runs are compared only on the algorithm core: the navigation entry point, the packages it
+# imports, its configuration, the task subset and the submodule versions. Launchers, tools,
+# tests, docs and environment files are archived and hashed in every manifest, but editing
+# them (or syncing them from another machine) never blocks a run or a resume.
+CORE_TOP_LEVEL = {'PSG_Nav.py'}
+CORE_PACKAGES = {'utils', 'configs', 'graph'}
+DATA_FILES = ('data/datasets/instancenav/val10/val10.json.gz',
+              'data/datasets/instancenav/val10/val10.manifest.json')
 COMMON = {
     'LANDMARK_COMPARISON_REPEATS': '1', 'LANDMARK_COMPARISON_WORKERS': '10',
     'ENABLE_INSTANCE_DESCRIPTION_FOR_EXPLORATION': 'false',
@@ -97,39 +105,76 @@ def source_inventory():
             if (ROOT / p).is_file():
                 paths.add(name)
     # The subset itself is hashed, not archived (large data remains external).
-    data = ['data/datasets/instancenav/val10/val10.json.gz',
-            'data/datasets/instancenav/val10/val10.manifest.json']
     hashes = {n: hashlib.sha256((ROOT / n).read_bytes()).hexdigest()
-              for n in sorted(paths | set(data))}
+              for n in sorted(paths | set(DATA_FILES))}
     submodules = subprocess.check_output(['git', 'submodule', 'status', '--recursive'], cwd=ROOT).decode()
     digest = hashlib.sha256(json.dumps({'files': hashes, 'submodules': submodules},
                                     sort_keys=True).encode()).hexdigest()
     return sorted(paths), hashes, submodules, digest
 
 
+def is_core(name):
+    parts = Path(name).parts
+    return name in CORE_TOP_LEVEL or name in DATA_FILES or (len(parts) > 1 and parts[0] in CORE_PACKAGES)
+
+
+def core_digest(hashes, submodules):
+    """Digest of the algorithm core only, computed from per-file hashes (also old manifests)."""
+    core = {name: value for name, value in hashes.items() if is_core(name)}
+    return hashlib.sha256(json.dumps({'files': core, 'submodules': submodules},
+                                     sort_keys=True).encode()).hexdigest()
+
+
+def _manifest_core(manifest):
+    if 'core_digest' in manifest:
+        return manifest['core_digest']
+    return core_digest(manifest.get('files_sha256', {}), manifest.get('submodule_versions', ''))
+
+
+def _suite_core(suite_path, suite):
+    """Suites written before core digests existed are identified by any of their manifests."""
+    if 'core_digest' in suite:
+        return suite['core_digest']
+    for manifest in sorted(suite_path.parent.glob('*/manifest.json')):
+        return _manifest_core(json.loads(manifest.read_text()))
+    return None
+
+
 def archive_run(args, cmd, directory, inventory):
     paths, hashes, submodules, digest = inventory
+    core = core_digest(hashes, submodules)
     manifest_path = directory / 'manifest.json'
+    python = str(Path(sys.executable).resolve())
+    # What defines a run: the experiment, its settings and the algorithm core. GPUs, the
+    # interpreter path and non-core files may differ between machines and resumes.
     identity = {'experiment': args.experiment, 'settings': settings(args.experiment, args.vlm),
-                'source_digest': digest, 'python': str(Path(sys.executable).resolve()),
-                'gpus': args.gpus, 'timestamp': args.timestamp}
+                'timestamp': args.timestamp}
     if args.resume:
         if not manifest_path.is_file():
             raise ValueError('Resume requires this launcher\'s original manifest')
         prior = json.loads(manifest_path.read_text())
         if any(prior.get(k) != v for k, v in identity.items()):
-            raise ValueError('Resume source/configuration/interpreter/GPUs changed; restore the original run settings')
+            raise ValueError('Resume experiment/settings changed; restore the original run settings')
+        if _manifest_core(prior) != core:
+            raise ValueError('Resume algorithm core changed (PSG_Nav.py, utils/, configs/, graph/, '
+                             'task subset or submodules); restore it to resume this run')
         return manifest_path
     if directory.exists() or (ROOT / f'data/results_instancenav_{args.timestamp}').exists():
         raise ValueError('Timestamp already exists; use --resume or a new timestamp')
     suite_path = ROOT / 'outputs/instance_ablation_runs' / args.suite / 'suite.json'
-    suite_identity = {'source_digest': digest, 'python': identity['python'], 'common': common(args.vlm)}
     if suite_path.exists():
-        if json.loads(suite_path.read_text()) != suite_identity:
-            raise ValueError('Suite source/configuration changed; restore it or select a new --suite for a new comparison batch')
+        suite = json.loads(suite_path.read_text())
+        if suite.get('common') != common(args.vlm):
+            raise ValueError('Suite common settings (including the VLM) differ; select a new --suite')
+        expected = _suite_core(suite_path, suite)
+        if expected is not None and expected != core:
+            raise ValueError('Suite algorithm core changed (PSG_Nav.py, utils/, configs/, graph/, '
+                             'task subset or submodules); restore it or select a new --suite')
     directory.mkdir(parents=True)
     if not suite_path.exists():
-        suite_path.write_text(json.dumps(suite_identity, indent=2) + '\n')
+        suite_path.write_text(json.dumps({'core_digest': core, 'source_digest': digest, 'python': python,
+                                          'common': common(args.vlm)}, indent=2) + '\n')
+    identity.update({'source_digest': digest, 'core_digest': core, 'python': python, 'gpus': args.gpus})
     with tarfile.open(directory / 'source.tar.gz', 'w:gz') as archive:
         for name in paths:
             archive.add(ROOT / name, arcname=name, recursive=False)
@@ -156,8 +201,9 @@ def main():
     for value in (args.suite, args.timestamp):
         if value is not None and not re.fullmatch(r'[A-Za-z0-9_-]+', value):
             parser.error('suite/timestamp must contain only letters, digits, underscore or hyphen')
-    if not re.fullmatch(r'\d+,\d+', args.gpus) or len(set(args.gpus.split(','))) != 2:
-        parser.error('--gpus requires two distinct IDs, e.g. 0,1')
+    gpu_ids = args.gpus.split(',')
+    if not re.fullmatch(r'\d+(,\d+)*', args.gpus) or len(set(gpu_ids)) != len(gpu_ids):
+        parser.error('--gpus requires one or more distinct IDs, e.g. 0 or 0,1')
     if not args.timestamp and (args.resume or not (args.check_only or args.dry_run)):
         parser.error('--timestamp is required for evaluation/resume')
     cmd = launch_command(args.experiment, args.gpus, args.timestamp, args.resume, args.vlm)

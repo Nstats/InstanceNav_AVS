@@ -368,7 +368,9 @@ def merge_worker_results(results_root, gpus, total):
     root = Path(results_root)
     by_index = {}
     duplicates = []
-    for gpu in gpus:
+    # A resumed run may use another GPU set; earlier workers' folders are merged as well.
+    found = {int(p.name[3:]) for p in root.glob('gpu*') if p.is_dir() and p.name[3:].isdigit()}
+    for gpu in [*gpus, *sorted(found - set(gpus))]:
         for row in _load_result_rows(root / f'gpu{gpu}'):
             index = int(row['dataset_index'])
             if index in by_index:
@@ -408,8 +410,8 @@ def _write_result_lines(path, rows):
 
 def _parse_gpus(text):
     gpus = [int(item) for item in text.split(',') if item != '']
-    if len(gpus) != 2 or len(set(gpus)) != 2 or any(gpu < 0 for gpu in gpus):
-        raise ValueError('--gpus expects two distinct non-negative ids, such as 0,1')
+    if not gpus or len(set(gpus)) != len(gpus) or any(gpu < 0 for gpu in gpus):
+        raise ValueError('--gpus expects one or more distinct non-negative ids, such as 0 or 0,1')
     return gpus
 
 

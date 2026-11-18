@@ -151,7 +151,7 @@ elif 'stop-watch' in args:
         assert (tmp_path / f'worker_{sibling}.stopped').exists(), stdout + stderr
         log = tmp_path / f'outputs/instancenav_val10_100_test_gpu{failed_gpu}.log'
         assert 'failed after 3 attempts' in log.read_text()
-        assert 'stopping both workers' in stderr
+        assert 'stopping the other workers' in stderr
     for gpu in ('0', '1'):
         log = tmp_path / f'outputs/instancenav_val10_100_test_gpu{gpu}.log'
         assert 'PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY: true' in log.read_text()

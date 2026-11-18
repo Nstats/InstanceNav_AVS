@@ -4,7 +4,7 @@
 # Choose the primary confirmation policy, then optionally recheck positive matches.
 set -euo pipefail
 
-# Usage: bash scripts/run_instance100.sh --gpus 0,1 --timestamp NAME
+# Usage: bash scripts/run_instance100.sh --gpus 0,1 --timestamp NAME   (or --gpus 0 for one GPU)
 : "${CUDA_VISIBLE_DEVICES:=0}"
 
 # A same-named environment variable sets the starting value; a flag overrides it.
@@ -78,7 +78,7 @@ usage() {
   cat <<EOF
 Usage: bash scripts/run_instance100.sh [options]
 
-Defaults to two worker processes on GPUs 0 and 1; --gpus overrides the pair.
+Defaults to two worker processes on GPUs 0 and 1; --gpus sets one or more GPUs.
 Same-named environment variables set the defaults below.
 Flags override those environment variables.
 
@@ -144,7 +144,7 @@ Options:
                                     Requires S6 settings: confirmation on, positive_match, k=1,
                                     admission/post-check/preservation/collect-only off, RAG=0
   --resume                          Continue the same timestamp from the next episode
-  --gpus A,B                        Run the same 100 tasks on two GPUs (default: 0,1). Each GPU keeps
+  --gpus A[,B...]                   Run the 100 tasks on one or more GPUs (default: 0,1). Each GPU keeps
                                     one process, claims the next unfinished task, and
                                     writes its own log
   --check-only                      Validate inputs without navigation
@@ -425,12 +425,12 @@ if [[ -n "${worker_gpu}" ]]; then
   fi
 fi
 if [[ -n "${gpu_list}" ]]; then
-  if ! [[ "${gpu_list}" =~ ^[0-9]+,[0-9]+$ ]]; then
-    echo '--gpus expects two ids such as 0,1' >&2
+  if ! [[ "${gpu_list}" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+    echo '--gpus expects one or more ids such as 0 or 0,1' >&2
     exit 2
   fi
-  IFS=',' read -r _gpu_a _gpu_b <<<"${gpu_list}"
-  if [[ "${_gpu_a}" == "${_gpu_b}" ]]; then
+  IFS=',' read -r -a _gpu_ids <<<"${gpu_list}"
+  if (( $(printf '%s\n' "${_gpu_ids[@]}" | sort -u | wc -l) != ${#_gpu_ids[@]} )); then
     echo '--gpus ids must differ' >&2
     exit 2
   fi
@@ -621,11 +621,13 @@ run_worker() {
   exit "${exit_status}"
 }
 
+# One worker per listed GPU (one or more). Every worker claims tasks from the same
+# queue, so a single-GPU run has the same task order, logs and merged results.
 run_dual() {
-  local gpu_a gpu_b results_root queue log_a log_b started watch_pid
-  local status_a=0 status_b=0 merge_status=0 preflight_status=0
-  local -a worker_common
-  IFS=',' read -r gpu_a gpu_b <<<"${gpu_list}"
+  local results_root queue started watch_pid gpu index existing=0
+  local merge_status=0 preflight_status=0 failed=0
+  local -a worker_common gpu_ids
+  IFS=',' read -r -a gpu_ids <<<"${gpu_list}"
   if [[ -n "${user_timestamp}" ]]; then
     run_timestamp="${user_timestamp}"
   else
@@ -633,10 +635,8 @@ run_dual() {
   fi
   results_root="$PWD/data/results_instancenav_${run_timestamp}"
   queue="${results_root}/schedule.json"
-  log_a="$PWD/outputs/instancenav_val10_100_${run_timestamp}_gpu${gpu_a}.log"
-  log_b="$PWD/outputs/instancenav_val10_100_${run_timestamp}_gpu${gpu_b}.log"
   mkdir -p outputs "${results_root}"
-  echo "Dual GPU: ${gpu_a} and ${gpu_b}"
+  echo "GPUs: ${gpu_ids[*]} (${#gpu_ids[@]} worker(s))"
   echo "Timestamp: ${run_timestamp}"
   echo "LANDMARK_COMPARISON_REPEATS: ${LANDMARK_COMPARISON_REPEATS}"
   echo "LANDMARK_COMPARISON_WORKERS: ${LANDMARK_COMPARISON_WORKERS}"
@@ -664,8 +664,9 @@ run_dual() {
   echo "VLM: ${VLM}"
   echo "QWEN_MODEL_NAME: ${QWEN_MODEL_NAME}"
   echo "PSGNAV_MODEL_BACKEND: ${PSGNAV_MODEL_BACKEND}"
-  echo "Log gpu${gpu_a}: ${log_a}"
-  echo "Log gpu${gpu_b}: ${log_b}"
+  for gpu in "${gpu_ids[@]}"; do
+    echo "Log gpu${gpu}: $PWD/outputs/instancenav_val10_100_${run_timestamp}_gpu${gpu}.log"
+  done
   echo "Results: ${results_root}/"
   echo "Queue: ${queue}"
   set +e
@@ -676,7 +677,14 @@ run_dual() {
     echo "Preflight failed (exit ${preflight_status})."
     exit "${preflight_status}"
   fi
-  if [[ -e "${queue}" || -d "${results_root}/gpu${gpu_a}" || -d "${results_root}/gpu${gpu_b}" || -d "${results_root}/experiment_0" ]]; then
+  # Any earlier worker folder counts, including one from a different GPU set.
+  local existing_dir
+  for existing_dir in "${results_root}"/gpu* "${results_root}/experiment_0"; do
+    if [[ -d "${existing_dir}" ]]; then
+      existing=1
+    fi
+  done
+  if [[ -e "${queue}" ]] || (( existing )); then
     if (( ! resume )); then
       echo 'Results already exist; choose a new timestamp or pass --resume' >&2
       exit 1
@@ -697,53 +705,65 @@ run_dual() {
   export PSGNAV_PROGRESS_FD=3
   started="$("$psgnav_python" -c 'import time; print(f"{time.time():.3f}")')"
   "$psgnav_python" -u tools/eval_schedule.py watch \
-    --schedule "${queue}" --gpus "${gpu_a},${gpu_b}" --started "${started}" &
+    --schedule "${queue}" --gpus "${gpu_list}" --started "${started}" &
   watch_pid=$!
   worker_common=(--work-queue "${queue}" --timestamp "${run_timestamp}")
   if (( resume )); then
     worker_common+=(--resume)
   fi
   set +e
-  dual_pid_a=""
-  dual_pid_b=""
-  trap '[[ -n "${dual_pid_a:-}" ]] && kill "${dual_pid_a}" 2>/dev/null || true; [[ -n "${dual_pid_b:-}" ]] && kill "${dual_pid_b}" 2>/dev/null || true' INT TERM
-  CUDA_VISIBLE_DEVICES="${gpu_a}" bash "${script_path}" --worker-gpu "${gpu_a}" "${worker_common[@]}" &
-  dual_pid_a=$!
-  CUDA_VISIBLE_DEVICES="${gpu_b}" bash "${script_path}" --worker-gpu "${gpu_b}" "${worker_common[@]}" &
-  dual_pid_b=$!
+  worker_pids=()
+  declare -A worker_gpu_of=() worker_status=()
+  trap '(( ${#worker_pids[@]} )) && kill "${worker_pids[@]}" 2>/dev/null || true' INT TERM
+  for gpu in "${gpu_ids[@]}"; do
+    CUDA_VISIBLE_DEVICES="${gpu}" bash "${script_path}" --worker-gpu "${gpu}" "${worker_common[@]}" &
+    worker_pids+=($!)
+    worker_gpu_of[$!]="${gpu}"
+  done
   # Observe whichever worker exits first. A fatal model/format error must stop
-  # this run, even when the failing worker is the second one in the list.
-  if ! wait -n "${dual_pid_a}" "${dual_pid_b}"; then
-    echo 'A worker failed; stopping both workers of this evaluation. See the GPU logs for the error.' >&2
-    kill "${dual_pid_a}" "${dual_pid_b}" 2>/dev/null || true
-  fi
-  wait "${dual_pid_a}"
-  status_a=$?
-  if kill -0 "${dual_pid_a}" 2>/dev/null; then
-    wait "${dual_pid_a}"
-    status_a=$?
-  fi
-  wait "${dual_pid_b}"
-  status_b=$?
-  if kill -0 "${dual_pid_b}" 2>/dev/null; then
-    wait "${dual_pid_b}"
-    status_b=$?
-  fi
+  # this run, whichever worker it comes from.
+  local -a running=("${worker_pids[@]}") still
+  local finished_pid code
+  while (( ${#running[@]} )); do
+    finished_pid=""
+    wait -n -p finished_pid "${running[@]}"
+    code=$?
+    [[ -z "${finished_pid}" ]] && break
+    worker_status[${worker_gpu_of[${finished_pid}]}]="${code}"
+    still=()
+    for index in "${running[@]}"; do
+      if [[ "${index}" != "${finished_pid}" ]]; then
+        still+=("${index}")
+      fi
+    done
+    running=("${still[@]}")
+    if (( code != 0 && ! failed )); then
+      failed=1
+      if (( ${#running[@]} )); then
+        echo 'A worker failed; stopping the other workers of this evaluation. See the GPU logs for the error.' >&2
+        kill "${running[@]}" 2>/dev/null || true
+      fi
+    fi
+  done
   trap - INT TERM
-  dual_pid_a=""
-  dual_pid_b=""
   set -e
   "$psgnav_python" tools/eval_schedule.py stop-watch --schedule "${queue}" || true
   wait "${watch_pid}" || true
   set +e
   "$psgnav_python" tools/eval_schedule.py merge \
-    --results-root "${results_root}" --gpus "${gpu_a},${gpu_b}" --total 100
+    --results-root "${results_root}" --gpus "${gpu_list}" --total 100
   merge_status=$?
   set -e
-  echo "gpu${gpu_a} exit ${status_a}; gpu${gpu_b} exit ${status_b}; merge exit ${merge_status}"
-  echo "Log gpu${gpu_a}: ${log_a}"
-  echo "Log gpu${gpu_b}: ${log_b}"
-  if (( status_a != 0 || status_b != 0 || merge_status != 0 )); then
+  failed=0
+  for gpu in "${gpu_ids[@]}"; do
+    echo "gpu${gpu} exit ${worker_status[${gpu}]:-unknown}"
+    [[ "${worker_status[${gpu}]:-1}" == 0 ]] || failed=1
+  done
+  echo "merge exit ${merge_status}"
+  for gpu in "${gpu_ids[@]}"; do
+    echo "Log gpu${gpu}: $PWD/outputs/instancenav_val10_100_${run_timestamp}_gpu${gpu}.log"
+  done
+  if (( failed || merge_status != 0 )); then
     echo "Evaluation incomplete."
     exit 1
   fi

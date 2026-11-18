@@ -191,7 +191,8 @@ def test_return_target_survives_real_agent_recovery_and_atomic_budget(monkeypatc
     agent.simulator = SimpleNamespace(_env=SimpleNamespace(_elapsed_steps=974, _max_episode_steps=1000))
     agent.detection_manager = SimpleNamespace(_emit_goal_lock_once=lambda *a, **k: None,
                                              reset_post_confirmation_progress=lambda **k: None,
-                                             preserve_evidence_on_recovery_enabled=lambda: False)
+                                             preserve_evidence_on_recovery_enabled=lambda: False,
+                                             collect_only_enabled=lambda: False)
     ctrl = RelativeEvidenceNavigation(agent, Calibration(CALIBRATION), 'new-scene')
     agent.relative_evidence_controller = ctrl
     ctrl.model = constant_model()

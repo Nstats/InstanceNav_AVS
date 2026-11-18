@@ -1,10 +1,18 @@
 """Tests for the M1 re-query analysis. No API calls and no simulator."""
 import collections
 import json
+import os
 
 import pytest
 
-from outputs.analysis_m1_requery_20261113 import analyze, requery
+# requery.py turns the API cache off for its own runs (PSGNAV_API_CACHE_SIZE=0 at import).
+# Restore the variable so the setting does not leak into other tests in this process.
+_cache_size = os.environ.get('PSGNAV_API_CACHE_SIZE')
+from outputs.analysis_m1_requery_20261113 import analyze, requery  # noqa: E402
+if _cache_size is None:
+    os.environ.pop('PSGNAV_API_CACHE_SIZE', None)
+else:
+    os.environ['PSGNAV_API_CACHE_SIZE'] = _cache_size
 
 
 def records(*rows):

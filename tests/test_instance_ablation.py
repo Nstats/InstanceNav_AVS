@@ -200,7 +200,7 @@ def test_manifest_blocks_mixed_sources_and_mismatched_resume(tmp_path, monkeypat
     monkeypatch.setattr(launcher, 'ROOT', tmp_path)
     (tmp_path / 'source.py').write_text('x = 1\n')
     monkeypatch.setattr(launcher.subprocess, 'check_output', lambda *a, **k: b'test-head')
-    inventory = (['source.py'], {'source.py': 'digest'}, '', 'suite-digest')
+    inventory = (['source.py'], {'source.py': 'digest', 'utils/core.py': 'core'}, '', 'suite-digest')
     args = SimpleNamespace(experiment='E3', gpus='0,1', timestamp='trial', suite='suite', resume=False,
                            vlm='qwen3.5-flash')
     directory = tmp_path / 'outputs/instance_ablation_runs/suite/trial'
@@ -208,12 +208,45 @@ def test_manifest_blocks_mixed_sources_and_mismatched_resume(tmp_path, monkeypat
     assert path.exists() and (directory / 'source.tar.gz').exists()
     args.resume = True
     assert archive_run(args, ['bash'], directory, inventory) == path
+    # Resuming on another GPU set, or after a non-core file changed, is allowed.
+    args.gpus = '0'
+    assert archive_run(args, ['bash'], directory,
+                       (inventory[0], {**inventory[1], 'source.py': 'x'}, '', 'other')) == path
+    with pytest.raises(ValueError, match='Resume algorithm core'):
+        archive_run(args, ['bash'], directory, (inventory[0], {**inventory[1], 'utils/core.py': 'x'}, '', 'other'))
     args.experiment = 'E4'
     with pytest.raises(ValueError, match='Resume'):
         archive_run(args, ['bash'], directory, inventory)
     args.resume, args.timestamp = False, 'second'
-    with pytest.raises(ValueError, match='Suite source'):
-        archive_run(args, ['bash'], directory.parent / 'second', (*inventory[:3], 'changed'))
+    # A non-core change (launcher, tools, environment file) keeps the suite usable.
+    second = archive_run(args, ['bash'], directory.parent / 'second',
+                         (inventory[0], {**inventory[1], 'source.py': 'changed'}, '', 'changed'))
+    assert json.loads(second.read_text())['source_digest'] == 'changed'
+    args.timestamp = 'third'
+    with pytest.raises(ValueError, match='Suite algorithm core'):
+        archive_run(args, ['bash'], directory.parent / 'third',
+                    (inventory[0], {**inventory[1], 'utils/core.py': 'changed'}, '', 'changed'))
+    with pytest.raises(ValueError, match='Suite algorithm core'):
+        archive_run(args, ['bash'], directory.parent / 'third', (*inventory[:2], 'submodule moved', 'x'))
+
+
+def test_suites_without_core_digest_use_their_manifests(tmp_path, monkeypatch):
+    import tools.run_instance_ablation as launcher
+    monkeypatch.setattr(launcher, 'ROOT', tmp_path)
+    monkeypatch.setattr(launcher.subprocess, 'check_output', lambda *a, **k: b'test-head')
+    hashes = {'PSG_Nav.py': 'nav', 'environment.yml': 'env', 'tools/x.py': 'tool'}
+    suite = tmp_path / 'outputs/instance_ablation_runs/old'
+    (suite / 'first').mkdir(parents=True)
+    (suite / 'suite.json').write_text(json.dumps({'source_digest': 'full', 'python': 'p',
+                                                  'common': launcher.common()}))
+    (suite / 'first/manifest.json').write_text(json.dumps({'files_sha256': hashes, 'submodule_versions': ''}))
+    args = SimpleNamespace(experiment='A0', gpus='0', timestamp='new', suite='old', resume=False,
+                           vlm='qwen3.5-flash')
+    synced = {**hashes, 'environment.yml': 'other machine', 'tools/x.py': 'edited'}
+    assert archive_run(args, ['bash'], suite / 'new', ([], synced, '', 'different')).exists()
+    args.timestamp = 'newer'
+    with pytest.raises(ValueError, match='Suite algorithm core'):
+        archive_run(args, ['bash'], suite / 'newer', ([], {**hashes, 'PSG_Nav.py': 'edited'}, '', 'x'))
 
 
 def test_queue_script_edits_do_not_change_source_fingerprint(tmp_path, monkeypatch):
@@ -259,5 +292,5 @@ def test_vlm_changes_only_the_model_and_the_suite_identity(tmp_path, monkeypatch
     manifest = json.loads(archive_run(args, ['bash'], runs / 'first', inventory).read_text())
     assert manifest['settings']['VLM'] == 'qwen3-vl-8b-instruct'
     args.timestamp, args.vlm = 'second', 'qwen3.5-flash'
-    with pytest.raises(ValueError, match='Suite source'):
+    with pytest.raises(ValueError, match='Suite common settings'):
         archive_run(args, ['bash'], runs / 'second', inventory)

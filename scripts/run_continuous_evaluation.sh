@@ -33,17 +33,27 @@
 set -u
 cd "$(dirname "$0")/.."
 
-SUITE=avs5_m7_20261117
+# Suite avs5_m7_20261117 holds T0 (avs5_T0_r1, 100/100); that result is kept and not rerun.
+# A0 and RA were refused there because commit 1eb62e4 changed environment.yml after T0
+# started, so they run in a new suite. environment.yml is the only file that differs, and it
+# does not affect navigation code. Timestamps are global (data/results_instancenav_<timestamp>),
+# so they carry an m7b prefix.
+# The launcher refuses a run only when the algorithm core (PSG_Nav.py, utils/, configs/,
+# graph/, the task subset, submodules) or the suite's common settings differ. Launchers,
+# tools, tests and environment files may change or be synced from another machine.
+SUITE=avs5_m7b_20261118
 VLM=qwen3.5-flash
+# GPUs for every run below (default 0,1). On a one-GPU machine set GPUS=0. Workers share one task queue,
+# so the task set and merged results are the same; only wall time changes.
+GPUS=0,1
 
-bash scripts/run_instance_ablation.sh T0 --vlm "$VLM" --suite "$SUITE" --gpus 0,1 --timestamp avs5_T0_r1
-bash scripts/run_instance_ablation.sh A0 --vlm "$VLM" --suite "$SUITE" --gpus 0,1 --timestamp avs5_A0_r1
-bash scripts/run_instance_ablation.sh RA --vlm "$VLM" --suite "$SUITE" --gpus 0,1 --timestamp avs5_RA_r1
+bash scripts/run_instance_ablation.sh A0 --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_A0_r1
+bash scripts/run_instance_ablation.sh RA --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_RA_r1
 
-#bash scripts/run_instance_ablation.sh T0 --vlm "$VLM" --suite "$SUITE" --gpus 0,1 --timestamp avs5_T0_r2
-#bash scripts/run_instance_ablation.sh A0 --vlm "$VLM" --suite "$SUITE" --gpus 0,1 --timestamp avs5_A0_r2
-#bash scripts/run_instance_ablation.sh RA --vlm "$VLM" --suite "$SUITE" --gpus 0,1 --timestamp avs5_RA_r2
+#bash scripts/run_instance_ablation.sh T0 --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_T0_r2
+#bash scripts/run_instance_ablation.sh A0 --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_A0_r2
+#bash scripts/run_instance_ablation.sh RA --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_RA_r2
 
 # Optional, same suite:
-# bash scripts/run_instance_ablation.sh B    --vlm "$VLM" --suite "$SUITE" --gpus 0,1 --timestamp avs5_B_m7_r1
-# bash scripts/run_instance_ablation.sh T0no --vlm "$VLM" --suite "$SUITE" --gpus 0,1 --timestamp avs5_T0no_r1
+# bash scripts/run_instance_ablation.sh B    --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_B_r1
+# bash scripts/run_instance_ablation.sh T0no --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_T0no_r1
