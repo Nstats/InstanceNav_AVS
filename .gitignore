@@ -30,6 +30,10 @@
 *.7z
 *.gz
 
+# Co-occurrence matrices loaded during agent initialization.
+!/tools/obj.npy
+!/tools/room.npy
+
 # Python, native builds and local toolchains
 __pycache__/
 *.py[cod]
