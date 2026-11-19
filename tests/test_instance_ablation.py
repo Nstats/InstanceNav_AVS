@@ -187,7 +187,10 @@ def test_fixed_presets_differ_only_by_planned_variable():
                 'T0': {'INSTANCE_REJECTION_POLICY': 'non_yes', 'INSTANCE_REJECTION_SCOPE': 'approach'},
                 'T0no': {'INSTANCE_REJECTION_POLICY': 'no', 'INSTANCE_REJECTION_SCOPE': 'approach'},
                 'A0': {'ENABLE_CANDIDATE_APPROACH': 'false'},
-                'RA': {'VERIFY_BEFORE_CANDIDATE': 'true'}}
+                'RA': {'VERIFY_BEFORE_CANDIDATE': 'true'},
+                'A0E3': {'ENABLE_CANDIDATE_APPROACH': 'false', 'INSTANCE_REJECTION_POLICY': 'no'},
+                'A0E4': {'ENABLE_CANDIDATE_APPROACH': 'false', 'INSTANCE_REJECTION_POLICY': 'non_yes'},
+                'A0E5': {'ENABLE_CANDIDATE_APPROACH': 'false', 'INSTANCE_CONFIRMATION_THRESHOLD': '2'}}
     assert set(expected) | {'B'} == set(launcher_variants())
     for experiment, diff in expected.items():
         assert {k: v for k, v in settings(experiment).items() if v != base[k]} == diff

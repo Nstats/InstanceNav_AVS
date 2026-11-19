@@ -1,31 +1,22 @@
 #!/usr/bin/env bash
-# M7 of the experiment queue in outputs/paper_AVSNav.md (internal notes, 阶段五): component
-# ablations that answer two questions, with qwen3.5-flash on the fixed val10 100-task subset.
-#   Q1 (Table A) How far should a negative answer reach?
-#     T0: "no" or "unknown" releases the candidate for the current approach only
-#         (INSTANCE_REJECTION_SCOPE=approach, INSTANCE_REJECTION_POLICY=non_yes). It comes back
-#         once it has been out of view for >= 5 policy steps and the agent has moved >= 1 m.
-#         Compare with B (nothing excluded) and E4 (excluded for the episode).
-#   Q2 (Table C) Is approaching before verifying necessary?
-#     A0: candidates are never approached (ENABLE_CANDIDATE_APPROACH=false); verification
-#         still runs whenever a candidate is within 4 m, and a yes still locks.
-#     RA: approach only candidates the VLM already admitted (VERIFY_BEFORE_CANDIDATE=true).
-# Everything else is the frozen main configuration (k=1, match_strict_no).
-#
-# This source adds approach logging (approach_start / approach_switch / approach_end /
-# approach_release / approach_release_end in the [Instance Verification] records). Logging
-# does not change decisions, but the new switches change the source fingerprint, so these
-# runs need a new suite. The optional B line below reruns B in the same suite, which gives
-# B approach logs for Table D and a same-source baseline.
-#
-# The M3a 8B queue (suite avs5_m3a_8b_20261114) is finished; it is no longer launched here.
+# Remaining InstanceNav x PSG-Nav runs for the main configuration A0 (paper_AVSNav.md, internal
+# notes "最小待做实验", items 1, 5, 6, 7), qwen3.5-flash unless noted, fixed val10 100-task subset.
+#   1  A0 run 3        Main configuration. A0 - B is not significant (+5.0 [-1.8, +13.4]), so A0
+#                      gets a third run; it also fills task 65, which A0_r2 (ti2080) lacks.
+#   5  A0E4            A0 + "no and unknown are excluded for the episode". Table 4 currently adds
+#                      exclusion on top of B; this adds it on top of the main configuration.
+#   6  A0E5            A0 + two yes votes before committing (k=2).
+#   6  A0E3            A0 + "an explicit no is excluded for the episode". Lower priority than A0E5.
+#   7  8B A0           A0 with Qwen3-VL-8B for every call, against 8b_B (SR 30) and ProCompNav.
+# If an A0E* comparison with A0 is not significant, rerun it twice more (_r2, _r3).
 #
 # Each line launches one experiment on GPUs 0,1 through scripts/run_instance_ablation.sh,
 # which archives source/config under outputs/instance_ablation_runs/<suite>/<timestamp>/
-# and refuses to mix runs whose source fingerprint or common settings differ from the
-# suite's. Do not edit tracked source between these runs. This file is excluded from the
-# fingerprint, so editing it does not change the suite. Each experiment runs even when an
-# earlier one exits with an error. To resume an interrupted run, rerun its line with --resume.
+# and refuses a run when the algorithm core (PSG_Nav.py, utils/, configs/, graph/, the task
+# subset, submodules) or the suite's common settings differ from the suite's. Do not edit
+# those files between these runs. This file is excluded from the fingerprint. Each experiment
+# runs even when an earlier one exits with an error. To resume an interrupted run, rerun its
+# line with --resume. Lines run one after another; comment out what you do not want yet.
 #
 # Usage:
 #   export PSGNAV_PYTHON=/home/temp/.conda/envs/psgnav-instance/bin/python
@@ -33,27 +24,30 @@
 set -u
 cd "$(dirname "$0")/.."
 
-# Suite avs5_m7_20261117 holds T0 (avs5_T0_r1, 100/100); that result is kept and not rerun.
-# A0 and RA were refused there because commit 1eb62e4 changed environment.yml after T0
-# started, so they run in a new suite. environment.yml is the only file that differs, and it
-# does not affect navigation code. Timestamps are global (data/results_instancenav_<timestamp>),
-# so they carry an m7b prefix.
-# The launcher refuses a run only when the algorithm core (PSG_Nav.py, utils/, configs/,
-# graph/, the task subset, submodules) or the suite's common settings differ. Launchers,
-# tools, tests and environment files may change or be synced from another machine.
+# Same suite as avs5_m7b_A0_r1 and avs5_m7b_RA_r1: same algorithm core and common settings,
+# so A0_r3 and the A0E* runs pair with A0_r1 on identical code. The A0E* presets were added
+# to tools/run_instance_ablation.py (not part of the core) on 2026-11-19.
 SUITE=avs5_m7b_20261118
 VLM=qwen3.5-flash
-# GPUs for every run below (default 0,1). On a one-GPU machine set GPUS=0. Workers share one task queue,
-# so the task set and merged results are the same; only wall time changes.
+# GPUs for every run below (default 0,1). On a one-GPU machine set GPUS=0.
 GPUS=0,1
 
-bash scripts/run_instance_ablation.sh A0 --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_A0_r1
-bash scripts/run_instance_ablation.sh RA --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_RA_r1
+bash scripts/run_instance_ablation.sh A0   --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_A0_r3
+bash scripts/run_instance_ablation.sh A0E4 --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_A0E4_r1
+bash scripts/run_instance_ablation.sh A0E5 --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_A0E5_r1
+bash scripts/run_instance_ablation.sh A0E3 --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_A0E3_r1
 
-#bash scripts/run_instance_ablation.sh T0 --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_T0_r2
-#bash scripts/run_instance_ablation.sh A0 --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_A0_r2
-#bash scripts/run_instance_ablation.sh RA --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_RA_r2
+# Reruns if A0E5 / A0E3 vs A0 is not significant (three runs each in total):
+#bash scripts/run_instance_ablation.sh A0E5 --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_A0E5_r2
+#bash scripts/run_instance_ablation.sh A0E5 --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_A0E5_r3
+#bash scripts/run_instance_ablation.sh A0E3 --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_A0E3_r2
+#bash scripts/run_instance_ablation.sh A0E3 --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_A0E3_r3
 
-# Optional, same suite:
-# bash scripts/run_instance_ablation.sh B    --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_B_r1
-# bash scripts/run_instance_ablation.sh T0no --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_T0no_r1
+# 8B (SiliconFlow, needs SILICONFLOW_API_KEY in .env). The old 8B suite avs5_m3a_8b_20261114 was
+# written by older code (different core and common settings), so 8B A0 needs a new suite. The
+# optional 8b B line reruns B on the same code, so 8b A0 - 8b B is a same-source pair; without
+# it, 8b A0 is compared with the old 8b_B (SR 30) across code versions.
+SUITE_8B=avs5_m7b_8b_20261119
+VLM_8B=qwen3-vl-8b-instruct
+bash scripts/run_instance_ablation.sh A0 --vlm "$VLM_8B" --suite "$SUITE_8B" --gpus "$GPUS" --timestamp avs5_m7b_8b_A0_r1
+#bash scripts/run_instance_ablation.sh B  --vlm "$VLM_8B" --suite "$SUITE_8B" --gpus "$GPUS" --timestamp avs5_m7b_8b_B_r1

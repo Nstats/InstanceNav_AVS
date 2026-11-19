@@ -61,6 +61,11 @@ VARIANTS = {
     # VLM admits from where they are first seen (RA); B approaches every detection.
     'A0': {'ENABLE_CANDIDATE_APPROACH': 'false'},
     'RA': {'VERIFY_BEFORE_CANDIDATE': 'true'},
+    # A0 is the paper's main configuration (2026-11-19). These add one E-variant rule back
+    # on top of A0 instead of B, so Table 4 can be read against the main configuration.
+    'A0E3': {'ENABLE_CANDIDATE_APPROACH': 'false', 'INSTANCE_REJECTION_POLICY': 'no'},
+    'A0E4': {'ENABLE_CANDIDATE_APPROACH': 'false', 'INSTANCE_REJECTION_POLICY': 'non_yes'},
+    'A0E5': {'ENABLE_CANDIDATE_APPROACH': 'false', 'INSTANCE_CONFIRMATION_THRESHOLD': '2'},
 }
 # Model behind every call (exploration and verification), as run_instance100.sh --vlm accepts it.
 # The default keeps the existing presets unchanged; another VLM is a separate comparison batch.
