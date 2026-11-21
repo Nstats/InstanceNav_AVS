@@ -25,6 +25,15 @@ POSITIVE_MATCH_RULES = {
         'is definitely not the described object. If the object is partly hidden, too small or '
         'unclear, if the described attributes or surrounding context are not visible in this view, '
         'or if you cannot tell for any other reason, answer "unknown", not "no". '),
+    'match_context_optional': (
+        'Answer "yes" if the boxed object itself matches the described appearance (for a picture, '
+        'what it shows) and nothing visible contradicts the description. Described surrounding '
+        'objects or relations that are outside this view do not count against the object. '
+        'If the description gives no appearance details beyond the category, answer "yes" only '
+        'when at least one described surrounding object or relation is visible and consistent. '
+        'Answer "no" only if the visible evidence clearly contradicts the description. '
+        'Answer "unknown" if the object itself is too small, hidden or unclear to judge, or if '
+        'the description has no appearance details and none of its surroundings are visible. '),
 }
 DEFAULT_FACTOR_FILE = Path(__file__).resolve().parents[1] / 'data/instancenav_factors/val10_factors_v1_review.csv'
 FACTOR_FIELDS = ('factor_id', 'kind', 'attribute', 'value', 'reference_category',
@@ -150,7 +159,8 @@ def _complete_logged_verification(model_client, request, image, response_format,
         except (ValueError, TypeError, KeyError, AttributeError) as error:
             log_instance_verification('format_error', context=context,
                                       error=f'{type(error).__name__}: {error}')
-            record_invalid_verification(request, image, response_format['json_schema']['schema'], answer, error)
+            record_invalid_verification(request, image, (response_format.get('json_schema') or {}).get('schema'),
+                                        answer, error)
             raise
         validated_answer = answer
 
@@ -263,16 +273,24 @@ def _verify_candidate_result(model_client, rgb, boxes, category, attributes, *, 
                         f'with a "matches" array of exactly {len(boxes)} strings. '
                         'Each string must be "yes", "no", or "unknown". '
                         'No ellipsis, comments, explanation, or extra entries.')
+        # qwen3.5-flash sometimes answers a strict json_schema request with the schema
+        # itself and repeats it on every schema-constrained retry of the same frame. The
+        # last attempt therefore asks for a plain JSON object; the prompt and the parser
+        # (exact count, yes/no/unknown only) are unchanged, so attempts 1 and 2 and every
+        # accepted answer are as before.
+        attempt_format = response_format if attempt < 2 else {'type': 'json_object'}
         context = {**log_context, 'attempt': attempt + 1}
+        if attempt_format is not response_format:
+            context['response_format'] = 'json_object'
         if context.get('collect_directory'):
             from utils.collection_recorder import save_image, model_settings
             marked = save_image(context['collect_directory'], image)
             log_instance_verification('request', context=context, prompt=request,
-                                      response_format=response_format, image=marked,
+                                      response_format=attempt_format, image=marked,
                                       model_settings=model_settings(model_client))
         try:
             matches = _complete_logged_verification(
-                model_client, request, image, response_format,
+                model_client, request, image, attempt_format,
                 lambda answer: parse_matches(answer, len(boxes)), context)
         except (ValueError, TypeError, KeyError, AttributeError):
             LOG.warning('Instance verification malformed response: boxes=%d attempt=%d; retrying format only',
@@ -289,7 +307,10 @@ def _verify_candidate_result(model_client, rgb, boxes, category, attributes, *, 
         log_instance_verification('result', context=context, matches=matches, kept_candidate_ids=kept)
         return {'kept': kept, 'matches': matches}
     log_instance_verification('failed', context=log_context, attempts=3, reason='invalid_response_format')
-    raise ModelRequestError('Invalid InstanceNav verification JSON after 3 format attempts') from None
+    # retry_exhausted: the evaluation loop defers this episode (rerun by --resume) instead of
+    # ending the worker; no partial decision is ever used.
+    raise ModelRequestError('Invalid InstanceNav verification JSON after 3 format attempts',
+                            retry_exhausted=True) from None
 
 
 def _unique_json_object(pairs):

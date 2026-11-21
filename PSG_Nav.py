@@ -1456,6 +1456,7 @@ class PSG_Nav_Agent():
 
         # Collect depth values from unoccluded pixels in center 80% region
         unoccluded_depths = []
+        unoccluded_count = 0
 
         for py in range(center80_y1, center80_y2):
             for px in range(center80_x1, center80_x2):
@@ -1471,12 +1472,22 @@ class PSG_Nav_Agent():
                         break
 
                 if not is_pixel_occluded:
+                    unoccluded_count += 1
                     depth_val = depth_map[py, px, 0]
                     if depth_val < 100:  # Valid depth
                         unoccluded_depths.append(depth_val)
 
+        from configs.navigation_config import depth_valid_fraction_gate
+        gate = depth_valid_fraction_gate()
+        valid_fraction = len(unoccluded_depths) / unoccluded_count if unoccluded_count else 0.0
+        if gate > 0 and valid_fraction < gate:
+            # Mostly invalid depth (mirror, glass, out of range): no distance at all.
+            true_depth = 100.0
+            print(f"[Depth Gate] valid fraction {valid_fraction:.2f} < {gate:.2f}, box has no distance")
+        elif gate > 0:
+            true_depth = float(np.median(unoccluded_depths))
         # Calculate true depth as mean of unoccluded depths
-        if len(unoccluded_depths) > 0:
+        elif len(unoccluded_depths) > 0:
             true_depth = np.mean(unoccluded_depths)
         else:
             # Fallback: use rough depth if no valid unoccluded pixels

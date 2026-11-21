@@ -1,5 +1,7 @@
 """CoIN protocol: config values, DistractorSuccess, stop rule, dataset gating, launcher defaults."""
+import os
 import re
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -170,7 +172,10 @@ def _defaults(script):
 
 
 # CoIN-only settings (split, subset, seed) have no InstanceNav counterpart.
-COIN_ONLY = {'COIN_SPLIT', 'COIN_SUBSET', 'COIN_SEED'}
+COIN_ONLY = {'COIN_SPLIT', 'COIN_SUBSET', 'COIN_SEED',
+             # E2 base fixes are exposed on the CoIN launcher only; off by default here and
+             # read from the environment (default off) everywhere else.
+             'GOAL_REFRESH_AFTER_LOCK', 'GOAL_REFRESH_RADIUS_M', 'DEPTH_VALID_FRACTION_GATE'}
 # Only CoIN returns to the A policy; InstanceNav keeps its current defaults.
 INTENDED_DIFFERENCES = {
     'ENABLE_INSTANCE_DESCRIPTION_FOR_EXPLORATION': ('true', 'false'),
@@ -244,3 +249,32 @@ def test_summary_clusters_by_target(tmp_path):
     low, high = summary['success_ci95_target_bootstrap']
     assert 0.0 <= low <= 1 / 3 <= high <= 1.0
     assert (tmp_path / 'per_episode.csv').read_text().count('\n') == 7
+
+
+def test_coin_launcher_exports_candidate_approach(tmp_path):
+    """A0 on CoIN: --enable-candidate-approach reaches the navigator; default keeps B."""
+    fake_python = tmp_path / 'python'
+    capture = tmp_path / 'capture'
+    fake_python.write_text(
+        '#!/bin/bash\nprintf "%s\\n" "$ENABLE_CANDIDATE_APPROACH" >> "$SWITCH_TEST_CAPTURE"\n'
+        'if [[ "$1" == "-" ]]; then cat >/dev/null; fi\n')
+    fake_python.chmod(0o755)
+    env = {**os.environ, 'PSGNAV_PYTHON': str(fake_python), 'SWITCH_TEST_CAPTURE': str(capture)}
+    env.pop('ENABLE_CANDIDATE_APPROACH', None)
+    base = ['bash', 'scripts/run_coin.sh', '--check-only', '--full']
+    result = subprocess.run(base, env=env, capture_output=True, text=True, cwd=ROOT)
+    assert result.returncode == 0, result.stderr
+    assert capture.read_text().splitlines()[-1] == 'true'
+    assert 'ENABLE_CANDIDATE_APPROACH: true' in result.stdout
+    result = subprocess.run([*base, '--enable-candidate-approach', 'NO'], env=env,
+                            capture_output=True, text=True, cwd=ROOT)
+    assert result.returncode == 0, result.stderr
+    assert capture.read_text().splitlines()[-1] == 'false'
+    assert 'ENABLE_CANDIDATE_APPROACH: false' in result.stdout
+    count = len(capture.read_text().splitlines())
+    for options in (['--enable-candidate-approach', 'bad'],
+                    ['--enable-candidate-approach', 'false', '--instance-collect-only', 'true'],
+                    ['--enable-candidate-approach', 'false', '--enable-instance-confirmation', 'false']):
+        result = subprocess.run([*base, *options], env=env, capture_output=True, text=True, cwd=ROOT)
+        assert result.returncode == 2, options
+    assert len(capture.read_text().splitlines()) == count  # Invalid flags never start Python.

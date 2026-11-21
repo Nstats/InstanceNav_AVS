@@ -34,6 +34,17 @@ set -euo pipefail
 : "${ENABLE_RELATIVE_EVIDENCE:=false}"
 : "${RAG_MODE:=0}"
 : "${VLM:=qwen3.5-flash}"
+# A0 (paper main configuration): false = unconfirmed candidates never become the
+# navigation goal; they are verified only when exploration passes within range.
+: "${ENABLE_CANDIDATE_APPROACH:=true}"
+# Base fixes (E2), all off by default = the original policy.
+# GOAL_REFRESH_AFTER_LOCK: keep running GLIP after a lock and move the goal point to the
+# nearest goal-category box within GOAL_REFRESH_RADIUS_M of it (no model call).
+# DEPTH_VALID_FRACTION_GATE: a box whose unoccluded centre has less valid depth than this
+# fraction gets no distance (mirrors, glass); 0 disables it.
+: "${GOAL_REFRESH_AFTER_LOCK:=false}"
+: "${GOAL_REFRESH_RADIUS_M:=1.5}"
+: "${DEPTH_VALID_FRACTION_GATE:=0}"
 
 # Defaults: the 100 frozen val_unseen episodes on GPUs 0,1. A same-named environment
 # variable sets the starting value; a flag overrides it. --subset 0 / --full runs
@@ -78,7 +89,7 @@ Runs with no options: the 100 frozen val_unseen episodes on GPUs 0,1
 
 Navigation switches take the same flags as scripts/run_instance100.sh, for example
   --enable-instance-description-for-exploration BOOL   (default: true)
-  --instance-verification-prompt match|match_strict_no (default: match)
+  --instance-verification-prompt match|match_strict_no|match_context_optional (default: match)
   --enable-instance-confirmation BOOL                  (default: true)
   --instance-confirmation-mode positive_match|contradiction
   --verify-before-candidate BOOL, --instance-confirmation-threshold N, --rag-mode N
@@ -86,6 +97,12 @@ Navigation switches take the same flags as scripts/run_instance100.sh, for examp
   --enable-post-confirmation-contradiction-check / --preserve-positive-evidence-on-recovery BOOL
   --instance-collect-only BOOL, --landmark-comparison-repeats N, --landmark-comparison-workers N
   --vlm qwen3.5-flash|gemini-2.5-flash|qwen3-vl-8b-instruct
+  --enable-candidate-approach BOOL  Unconfirmed candidates become the navigation goal
+                                    (default: true; false = A0)
+  --goal-refresh-after-lock BOOL    Move the locked goal point to its newest estimate (default: false)
+  --goal-refresh-radius-m M         Largest refresh jump in metres, (0, 5] (default: 1.5)
+  --depth-valid-fraction-gate F     Minimum valid-depth fraction of a box centre, [0, 1);
+                                    0 = off (default: 0)
 EOF
 }
 
@@ -93,7 +110,8 @@ switch_flags=" landmark-comparison-repeats landmark-comparison-workers enable-in
   enable-object-relations enable-group-llm-filter enable-room-llm-filter enable-instance-confirmation
   instance-confirmation-threshold verify-before-candidate instance-confirmation-mode instance-verification-prompt
   enable-post-confirmation-contradiction-check preserve-positive-evidence-on-recovery
-  instance-collect-only rag-mode vlm "
+  instance-collect-only rag-mode vlm enable-candidate-approach goal-refresh-after-lock
+  goal-refresh-radius-m depth-valid-fraction-gate "
 switch_flags=" $(echo $switch_flags) "
 
 need_value() {
@@ -152,9 +170,13 @@ esac
 for name in ENABLE_INSTANCE_DESCRIPTION_FOR_EXPLORATION ENABLE_OBJECT_RELATIONS ENABLE_GROUP_LLM_FILTER \
     ENABLE_ROOM_LLM_FILTER ENABLE_INSTANCE_CONFIRMATION VERIFY_BEFORE_CANDIDATE \
     ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY \
-    INSTANCE_COLLECT_ONLY ENABLE_RELATIVE_EVIDENCE; do
+    INSTANCE_COLLECT_ONLY ENABLE_RELATIVE_EVIDENCE ENABLE_CANDIDATE_APPROACH GOAL_REFRESH_AFTER_LOCK; do
   normalize_bool "$name"
 done
+[[ "$GOAL_REFRESH_RADIUS_M" =~ ^[0-9]+(\.[0-9]+)?$ ]] && awk -v v="$GOAL_REFRESH_RADIUS_M" 'BEGIN{exit !(v > 0 && v <= 5)}' \
+  || fail "GOAL_REFRESH_RADIUS_M must be in (0, 5], got: $GOAL_REFRESH_RADIUS_M"
+[[ "$DEPTH_VALID_FRACTION_GATE" =~ ^[0-9]+(\.[0-9]+)?$ ]] && awk -v v="$DEPTH_VALID_FRACTION_GATE" 'BEGIN{exit !(v >= 0 && v < 1)}' \
+  || fail "DEPTH_VALID_FRACTION_GATE must be in [0, 1), got: $DEPTH_VALID_FRACTION_GATE"
 [[ "$ENABLE_RELATIVE_EVIDENCE" == false ]] || fail 'ENABLE_RELATIVE_EVIDENCE must stay false for CoIN'
 for name in LANDMARK_COMPARISON_REPEATS LANDMARK_COMPARISON_WORKERS INSTANCE_CONFIRMATION_THRESHOLD; do
   [[ "${!name}" =~ ^[1-9][0-9]*$ ]] || fail "$name must be a positive integer, got: ${!name}"
@@ -163,8 +185,8 @@ done
 INSTANCE_CONFIRMATION_MODE="${INSTANCE_CONFIRMATION_MODE,,}"
 INSTANCE_VERIFICATION_PROMPT="${INSTANCE_VERIFICATION_PROMPT,,}"
 case "$INSTANCE_VERIFICATION_PROMPT" in
-  match|match_strict_no) ;;
-  *) fail 'INSTANCE_VERIFICATION_PROMPT must be match or match_strict_no' ;;
+  match|match_strict_no|match_context_optional) ;;
+  *) fail 'INSTANCE_VERIFICATION_PROMPT must be match, match_strict_no or match_context_optional' ;;
 esac
 [[ "$INSTANCE_CONFIRMATION_MODE" == positive_match || "$INSTANCE_CONFIRMATION_MODE" == contradiction ]] \
   || fail 'INSTANCE_CONFIRMATION_MODE must be positive_match or contradiction'
@@ -172,6 +194,10 @@ if [[ "$INSTANCE_CONFIRMATION_MODE" != positive_match || "$ENABLE_INSTANCE_CONFI
   for name in ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY INSTANCE_COLLECT_ONLY; do
     [[ "${!name}" == false ]] || fail "$name requires INSTANCE_CONFIRMATION_MODE=positive_match and ENABLE_INSTANCE_CONFIRMATION=true"
   done
+fi
+if [[ "$ENABLE_CANDIDATE_APPROACH" == false ]] && [[ "$ENABLE_INSTANCE_CONFIRMATION" != true \
+    || "$INSTANCE_CONFIRMATION_MODE" != positive_match || "$INSTANCE_COLLECT_ONLY" != false ]]; then
+  fail 'ENABLE_CANDIDATE_APPROACH=false requires instance confirmation, positive_match and collect-only off'
 fi
 if [[ "$INSTANCE_COLLECT_ONLY" == true && "$ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK" == true ]]; then
   fail 'INSTANCE_COLLECT_ONLY cannot be combined with ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK'
@@ -201,7 +227,8 @@ export LANDMARK_COMPARISON_REPEATS LANDMARK_COMPARISON_WORKERS ENABLE_INSTANCE_D
 export ENABLE_OBJECT_RELATIONS ENABLE_GROUP_LLM_FILTER ENABLE_ROOM_LLM_FILTER ENABLE_INSTANCE_CONFIRMATION
 export INSTANCE_CONFIRMATION_THRESHOLD VERIFY_BEFORE_CANDIDATE INSTANCE_CONFIRMATION_MODE INSTANCE_VERIFICATION_PROMPT
 export ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY INSTANCE_COLLECT_ONLY
-export ENABLE_RELATIVE_EVIDENCE RAG_MODE VLM
+export ENABLE_RELATIVE_EVIDENCE RAG_MODE VLM ENABLE_CANDIDATE_APPROACH
+export GOAL_REFRESH_AFTER_LOCK GOAL_REFRESH_RADIUS_M DEPTH_VALID_FRACTION_GATE
 unset ENABLE_INSTANCE_CONFIRMATION_BEFORE_FIND_GOAL
 
 script_path="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
@@ -224,7 +251,8 @@ switch_summary() {
       ENABLE_OBJECT_RELATIONS ENABLE_GROUP_LLM_FILTER ENABLE_ROOM_LLM_FILTER ENABLE_INSTANCE_CONFIRMATION \
       INSTANCE_CONFIRMATION_THRESHOLD VERIFY_BEFORE_CANDIDATE INSTANCE_CONFIRMATION_MODE INSTANCE_VERIFICATION_PROMPT \
       ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY INSTANCE_COLLECT_ONLY \
-      ENABLE_RELATIVE_EVIDENCE RAG_MODE VLM QWEN_MODEL_NAME PSGNAV_MODEL_BACKEND; do
+      ENABLE_RELATIVE_EVIDENCE RAG_MODE VLM QWEN_MODEL_NAME PSGNAV_MODEL_BACKEND ENABLE_CANDIDATE_APPROACH \
+      GOAL_REFRESH_AFTER_LOCK GOAL_REFRESH_RADIUS_M DEPTH_VALID_FRACTION_GATE; do
     echo "${name}: ${!name}"
   done
 }
@@ -296,7 +324,9 @@ names = ('LANDMARK_COMPARISON_REPEATS LANDMARK_COMPARISON_WORKERS ENABLE_INSTANC
          'INSTANCE_CONFIRMATION_THRESHOLD VERIFY_BEFORE_CANDIDATE INSTANCE_CONFIRMATION_MODE '
         'ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY INSTANCE_COLLECT_ONLY '
          'ENABLE_RELATIVE_EVIDENCE RAG_MODE VLM QWEN_MODEL_NAME PSGNAV_MODEL_BACKEND '
-         'INSTANCE_VERIFICATION_PROMPT PSGNAV_API_MAX_TOKENS PSGNAV_API_CACHE_SIZE PSGNAV_EXACT_CACHE').split()
+         'INSTANCE_VERIFICATION_PROMPT PSGNAV_API_MAX_TOKENS PSGNAV_API_CACHE_SIZE PSGNAV_EXACT_CACHE '
+         'ENABLE_CANDIDATE_APPROACH GOAL_REFRESH_AFTER_LOCK GOAL_REFRESH_RADIUS_M '
+         'DEPTH_VALID_FRACTION_GATE').split()
 info = {'dataset': 'coin', 'protocol': 'coin-official', 'split': os.environ['RUN_INFO_SPLIT'],
         'config': os.environ['RUN_INFO_CONFIG'], 'subset': os.environ['RUN_INFO_SUBSET'] or None,
         'pool': os.environ['RUN_INFO_POOL'] or None,
@@ -319,7 +349,7 @@ sources = ['PSG_Nav.py', 'utils/object_detection.py', 'utils/collection_recorder
            'utils/collect_only.py', 'utils/instance_evidence.py', 'utils/instance_verifier.py',
            'utils/model_client.py', 'configs/navigation_config.py', 'configs/dataset_registry.py',
            'scripts/run_coin.sh', 'configs/coin_val_unseen_subset100_seed77.json',
-           'configs/dataset_categories.py', 'graph/meta_func/io_func.py',
+           'configs/dataset_categories.py', 'graph/meta_func/io_func.py', 'graph/meta_func/nav_func.py',
            'utils/utils_sg_uq/merge_utils.py', 'utils/utils_fmm/fmm_planner.py']
 info['source_sha256'] = {p: hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in sources}
 with open(sys.argv[1], 'w') as stream:

@@ -110,7 +110,39 @@ def instance_confirmation_mode():
     return mode
 
 
-INSTANCE_VERIFICATION_PROMPTS = ('match', 'match_strict_no')
+INSTANCE_VERIFICATION_PROMPTS = ('match', 'match_strict_no', 'match_context_optional')
+
+
+def goal_refresh_after_lock_enabled():
+    """Keep detecting after a lock and move the goal to the locked instance's newest estimate.
+
+    Off by default (the original policy freezes the lock point). No model call is made:
+    boxes of the goal category near the current goal only refine its position.
+    """
+    return env_bool('GOAL_REFRESH_AFTER_LOCK', False)
+
+
+def goal_refresh_radius_m():
+    """Largest planar jump (m) of a refresh; farther boxes are other instances."""
+    raw = _raw('GOAL_REFRESH_RADIUS_M')
+    value = 1.5 if raw is None else float(raw)
+    if not 0 < value <= 5:
+        raise ValueError(f'GOAL_REFRESH_RADIUS_M must be in (0, 5], got {raw!r}')
+    return value
+
+
+def depth_valid_fraction_gate():
+    """Minimum fraction of valid depth in a box's unoccluded centre; 0 disables the gate.
+
+    With the gate on, a box whose centre is mostly invalid depth (mirrors, glass, out of
+    range) gets no distance at all instead of one borrowed from a few valid pixels, and
+    the distance is the median of the valid pixels instead of the mean.
+    """
+    raw = _raw('DEPTH_VALID_FRACTION_GATE')
+    value = 0.0 if raw is None else float(raw)
+    if not 0 <= value < 1:
+        raise ValueError(f'DEPTH_VALID_FRACTION_GATE must be in [0, 1), got {raw!r}')
+    return value
 
 
 def instance_verification_prompt():
@@ -118,6 +150,9 @@ def instance_verification_prompt():
 
     match: the original prompt ("If evidence is inadequate, answer unknown.").
     match_strict_no: "no" only for a clear contradiction; unclear or not visible is "unknown".
+    match_context_optional: "yes" when the object's own appearance matches and nothing
+        visible contradicts the description; surroundings that are out of view do not
+        count against it (CoIN: auto-generated relations are often out of view or wrong).
     """
     name = (_raw('INSTANCE_VERIFICATION_PROMPT') or 'match').lower()
     if name not in INSTANCE_VERIFICATION_PROMPTS:

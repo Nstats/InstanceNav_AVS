@@ -270,6 +270,52 @@ class ObjectDetectionManager:
             # Large objects: use GLIP/FastSAM navigation detector
             self._detect_goal_with_navigation_detector(observations)
 
+    def refresh_locked_goal(self, observations):
+        """Move a locked goal to the newest estimate of the same instance (no model call).
+
+        GLIP runs on the frame; goal-category boxes with a valid distance are localized
+        like navigation candidates, and the one nearest the current goal point within
+        goal_refresh_radius_m() replaces it. Farther boxes are other instances and are
+        ignored, so this never changes which instance is locked.
+        """
+        from configs.dataset_categories import goal_label_matches
+        from configs.navigation_config import goal_refresh_radius_m
+        if not self.agent.found_goal or DETECTOR_TYPE != 'glip':
+            return None
+        self._detect_with_glip(observations)
+        predictions = self.agent.current_obj_predictions
+        labels = predictions.get_field('labels')
+        goal = self.agent.obj_goal.lower()
+        current = np.asarray(self.agent.goal_gps, dtype=float)
+        radius = goal_refresh_radius_m()
+        best = None
+        for j, label in enumerate(labels):
+            label = label.lower() if isinstance(label, str) else str(label).lower()
+            if not goal_label_matches(label, goal, self.agent.dataset):
+                continue
+            _, _, distance, gps = self._navigation_goal_geometry(predictions.bbox[j], j, observations)
+            gps = np.asarray(gps, dtype=float)
+            if (gps.shape != (2,) or not np.all(np.isfinite(gps))
+                    or not 0 < float(distance) < self.agent.distance_threshold):
+                continue
+            jump = float(np.linalg.norm(gps - current))
+            if jump <= radius and (best is None or jump < best[0]):
+                best = (jump, gps, float(distance), j)
+        if best is None:
+            return None
+        jump, gps, distance, j = best
+        self.agent.goal_gps = gps.copy()
+        tracks = getattr(getattr(self, '_positive_evidence', None), 'tracks', None) or []
+        track_id = getattr(self, '_post_goal_track_id', None)
+        for track in tracks:
+            if track.track_id == track_id and track.gps is not None:
+                track.gps = gps.copy()
+        log_event('Goal Refresh', episode=getattr(self.agent, 'count_episodes', None),
+                  step=self.agent.total_steps, previous_gps=current.round(3).tolist(),
+                  goal_gps=gps.round(3).tolist(), jump_m=round(jump, 3),
+                  est_distance_m=round(distance, 3), prediction_idx=j)
+        return gps
+
     def _detect_with_glip(self, observations):
         """Run GLIP detector on current observation."""
         from utils.utils_glip import categories_21
@@ -1161,6 +1207,11 @@ class ObjectDetectionManager:
         direction = self._pixel_direction(center[0])
         # Preserve the existing navigation detector's GPS/fallback ordering.
         gps = self.agent.get_goal_gps(observations, direction, distance)
+        from configs.navigation_config import depth_valid_fraction_gate
+        if depth_valid_fraction_gate() > 0 and distance >= 100:
+            # The gate rejected this box's depth; a neighbouring-pixel search would
+            # bring back exactly the borrowed distance it is meant to drop.
+            return center, direction, float(distance), None
         distance = self._fallback_goal_depth(center, distance)
         return center, direction, distance, gps
 

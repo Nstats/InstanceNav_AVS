@@ -67,6 +67,10 @@ class NavFunc():
             return True
 
     def perception(self):
+        if self.agent.found_goal:
+            from configs.navigation_config import goal_refresh_after_lock_enabled
+            if goal_refresh_after_lock_enabled():
+                self.agent.detection_manager.refresh_locked_goal(self.observations)
         if not self.agent.found_goal:
             self.agent.detect_objects(self.observations)
             if self.agent.total_steps % 2 == 0:

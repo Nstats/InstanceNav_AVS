@@ -34,8 +34,8 @@ GPUS=0,1
 
 bash scripts/run_instance_ablation.sh A0   --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_A0_r3
 bash scripts/run_instance_ablation.sh A0E4 --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_A0E4_r1
-bash scripts/run_instance_ablation.sh A0E5 --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_A0E5_r1
-bash scripts/run_instance_ablation.sh A0E3 --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_A0E3_r1
+#bash scripts/run_instance_ablation.sh A0E5 --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_A0E5_r1
+#bash scripts/run_instance_ablation.sh A0E3 --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_A0E3_r1
 
 # Reruns if A0E5 / A0E3 vs A0 is not significant (three runs each in total):
 #bash scripts/run_instance_ablation.sh A0E5 --vlm "$VLM" --suite "$SUITE" --gpus "$GPUS" --timestamp avs5_m7b_A0E5_r2
