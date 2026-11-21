@@ -50,6 +50,10 @@ set -euo pipefail
 # switches (description exploration, relations, group/room filters, base fixes); with
 # instance confirmation on it runs AVS A0 only (--enable-candidate-approach false).
 : "${NAV_BASE:=psgnav}"
+# Rejection ablations (same switches as scripts/run_instance100.sh); none = no/unknown
+# answers leave no trace (AVS). no / non_yes exclude the candidate for the episode (E3 / E4).
+: "${INSTANCE_REJECTION_POLICY:=none}"
+: "${INSTANCE_REJECTION_SCOPE:=episode}"
 
 # Defaults: the 100 frozen val_unseen episodes on GPUs 0,1. A same-named environment
 # variable sets the starting value; a flag overrides it. --subset 0 / --full runs
@@ -108,6 +112,9 @@ Navigation switches take the same flags as scripts/run_instance100.sh, for examp
   --vlm qwen3.5-flash|gemini-2.5-flash|qwen3-vl-8b-instruct
   --enable-candidate-approach BOOL  Unconfirmed candidates become the navigation goal
                                     (default: true; false = A0)
+  --instance-rejection-policy none|no|non_yes  (default: none) Exclude a candidate for the
+                                    episode after a "no" (no, E3) or any non-yes answer (non_yes, E4)
+  --instance-rejection-scope episode|approach  (default: episode)
   --goal-refresh-after-lock BOOL    Move the locked goal point to its newest estimate (default: false)
   --goal-refresh-radius-m M         Largest refresh jump in metres, (0, 5] (default: 1.5)
   --depth-valid-fraction-gate F     Minimum valid-depth fraction of a box centre, [0, 1);
@@ -120,7 +127,7 @@ switch_flags=" landmark-comparison-repeats landmark-comparison-workers enable-in
   instance-confirmation-threshold verify-before-candidate instance-confirmation-mode instance-verification-prompt
   enable-post-confirmation-contradiction-check preserve-positive-evidence-on-recovery
   instance-collect-only rag-mode vlm enable-candidate-approach goal-refresh-after-lock
-  goal-refresh-radius-m depth-valid-fraction-gate "
+  goal-refresh-radius-m depth-valid-fraction-gate instance-rejection-policy instance-rejection-scope "
 switch_flags=" $(echo $switch_flags) "
 
 need_value() {
@@ -198,6 +205,23 @@ case "$INSTANCE_VERIFICATION_PROMPT" in
   match|match_strict_no|match_context_optional) ;;
   *) fail 'INSTANCE_VERIFICATION_PROMPT must be match, match_strict_no or match_context_optional' ;;
 esac
+INSTANCE_REJECTION_POLICY="${INSTANCE_REJECTION_POLICY,,}"
+INSTANCE_REJECTION_SCOPE="${INSTANCE_REJECTION_SCOPE,,}"
+case "$INSTANCE_REJECTION_POLICY" in
+  none|no|non_yes) ;;
+  *) fail 'INSTANCE_REJECTION_POLICY must be none, no or non_yes' ;;
+esac
+case "$INSTANCE_REJECTION_SCOPE" in
+  episode|approach) ;;
+  *) fail 'INSTANCE_REJECTION_SCOPE must be episode or approach' ;;
+esac
+if [[ "$INSTANCE_REJECTION_POLICY" != none ]] && [[ "$ENABLE_INSTANCE_CONFIRMATION" != true \
+    || "$INSTANCE_CONFIRMATION_MODE" != positive_match ]]; then
+  fail 'INSTANCE_REJECTION_POLICY requires instance confirmation and positive_match'
+fi
+if [[ "$INSTANCE_REJECTION_SCOPE" == approach && "$INSTANCE_REJECTION_POLICY" == none ]]; then
+  fail 'INSTANCE_REJECTION_SCOPE=approach requires INSTANCE_REJECTION_POLICY no or non_yes'
+fi
 [[ "$INSTANCE_CONFIRMATION_MODE" == positive_match || "$INSTANCE_CONFIRMATION_MODE" == contradiction ]] \
   || fail 'INSTANCE_CONFIRMATION_MODE must be positive_match or contradiction'
 if [[ "$INSTANCE_CONFIRMATION_MODE" != positive_match || "$ENABLE_INSTANCE_CONFIRMATION" != true ]]; then
@@ -248,6 +272,7 @@ export INSTANCE_CONFIRMATION_THRESHOLD VERIFY_BEFORE_CANDIDATE INSTANCE_CONFIRMA
 export ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY INSTANCE_COLLECT_ONLY
 export ENABLE_RELATIVE_EVIDENCE RAG_MODE VLM ENABLE_CANDIDATE_APPROACH
 export GOAL_REFRESH_AFTER_LOCK GOAL_REFRESH_RADIUS_M DEPTH_VALID_FRACTION_GATE NAV_BASE
+export INSTANCE_REJECTION_POLICY INSTANCE_REJECTION_SCOPE
 unset ENABLE_INSTANCE_CONFIRMATION_BEFORE_FIND_GOAL
 
 script_path="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
@@ -271,7 +296,8 @@ switch_summary() {
       INSTANCE_CONFIRMATION_THRESHOLD VERIFY_BEFORE_CANDIDATE INSTANCE_CONFIRMATION_MODE INSTANCE_VERIFICATION_PROMPT \
       ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY INSTANCE_COLLECT_ONLY \
       ENABLE_RELATIVE_EVIDENCE RAG_MODE VLM QWEN_MODEL_NAME PSGNAV_MODEL_BACKEND ENABLE_CANDIDATE_APPROACH \
-      GOAL_REFRESH_AFTER_LOCK GOAL_REFRESH_RADIUS_M DEPTH_VALID_FRACTION_GATE NAV_BASE; do
+      GOAL_REFRESH_AFTER_LOCK GOAL_REFRESH_RADIUS_M DEPTH_VALID_FRACTION_GATE NAV_BASE \
+      INSTANCE_REJECTION_POLICY INSTANCE_REJECTION_SCOPE; do
     echo "${name}: ${!name}"
   done
 }
@@ -345,7 +371,7 @@ names = ('LANDMARK_COMPARISON_REPEATS LANDMARK_COMPARISON_WORKERS ENABLE_INSTANC
          'ENABLE_RELATIVE_EVIDENCE RAG_MODE VLM QWEN_MODEL_NAME PSGNAV_MODEL_BACKEND '
          'INSTANCE_VERIFICATION_PROMPT PSGNAV_API_MAX_TOKENS PSGNAV_API_CACHE_SIZE PSGNAV_EXACT_CACHE '
          'ENABLE_CANDIDATE_APPROACH GOAL_REFRESH_AFTER_LOCK GOAL_REFRESH_RADIUS_M '
-         'DEPTH_VALID_FRACTION_GATE NAV_BASE').split()
+         'DEPTH_VALID_FRACTION_GATE NAV_BASE INSTANCE_REJECTION_POLICY INSTANCE_REJECTION_SCOPE').split()
 info = {'dataset': 'coin', 'protocol': 'coin-official', 'nav_base': os.environ['NAV_BASE'], 'split': os.environ['RUN_INFO_SPLIT'],
         'config': os.environ['RUN_INFO_CONFIG'], 'subset': os.environ['RUN_INFO_SUBSET'] or None,
         'pool': os.environ['RUN_INFO_POOL'] or None,
