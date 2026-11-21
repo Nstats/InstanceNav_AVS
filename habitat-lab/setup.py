@@ -7,6 +7,7 @@
 import glob
 import os.path
 import sys
+from pathlib import Path
 
 import setuptools
 from setuptools.command.develop import develop as DefaultDevelopCommand
@@ -16,9 +17,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "habitat"))
 from version import VERSION  # isort:skip noqa
 
 
-with open("README.md", encoding="utf8") as f:
-    readme = f.read()
-
 with open("LICENSE") as f:
     license_text = f.read()
 
@@ -27,7 +25,8 @@ with open("requirements.txt") as f:
 
 DISTNAME = "habitat"
 DESCRIPTION = "habitat: a suite for embodied agent tasks and benchmarks"
-LONG_DESCRIPTION = readme
+README = Path(__file__).with_name("README.md")
+LONG_DESCRIPTION = README.read_text(encoding="utf8") if README.is_file() else DESCRIPTION
 AUTHOR = "Facebook AI Research"
 LICENSE = license_text
 REQUIREMENTS = reqs.strip().split("\n")

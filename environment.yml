@@ -1,11 +1,10 @@
-# Current psgnav-instance runtime, checked on 2026-11-17.
+# Current psgnav-instance runtime, checked on 2026-11-21.
 # Target: Linux x86_64, Python 3.9, PyTorch 2.7.0 / CUDA 11.8 (including L20).
-# Pins come from the active environment with PYTHONNOUSERSITE=1, rather than
-# stale conda records or packages installed in the user's ~/.local directory.
+# Pins match the versions loaded from the active environment with PYTHONNOUSERSITE=1.
 # This pins the main runtime libraries, not every transitive/system dependency.
 #
 # From the repository root on the destination machine:
-#   conda env create -f environment.yml
+#   PYTHONNOUSERSITE=1 conda env create --no-default-packages -f environment.yml
 #   conda activate psgnav-instance
 #
 # Two CUDA extensions must be built AFTER torch has been installed. They cannot
@@ -13,6 +12,7 @@
 # Prerequisites: git, a C++ compiler compatible with CUDA 11.8, and a CUDA 11.8
 # toolkit containing nvcc/headers. Set CUDA_HOME to that toolkit on the new host;
 # PyTorch's bundled CUDA runtime alone does not include a compiler.
+# Set CUB_HOME="$CUDA_HOME/include" if that directory contains cub/.
 # On an L20, set TORCH_CUDA_ARCH_LIST=8.9 for these builds.
 #
 # PyTorch3D 0.7.9: same source revision as scripts/build_pytorch3d.sh; use the
@@ -30,6 +30,8 @@
 #
 # GLIP and Segment Anything use this repository's source directly. Data, model
 # weights, API credentials and host-specific paths are configured separately.
+# The optional VLFM backend also requires a separate VLFM checkout, its model
+# server dependencies and weights. See DEPLOYMENT_ZH.md.
 # After preparing those resources, run: bash scripts/run_instance100.sh --check-only
 name: psgnav-instance
 channels:
@@ -46,9 +48,11 @@ dependencies:
   - habitat-sim=0.2.4=py3.9_linux_f179b584bcd713c5a2a998132211e2cae881d6d1
   - habitat-sim-mutex=1.0=display_nobullet
 
-  # Conda-installed Habitat/numerical dependencies. Habitat's old binary build
-  # pulls in its own Matplotlib/ImageIO dependencies; the pip pins below restore
-  # the versions actually used by this project after the conda transaction.
+  # Conda-installed Habitat/numerical dependencies. Use the same OpenBLAS
+  # variant as the source environment. The pip Matplotlib pin restores the
+  # runtime version after Habitat-Sim pulls in its conda dependency.
+  - libblas=3.11.0=5_h4a7cf45_openblas
+  - libopenblas=0.3.30=pthreads_h94d23a6_4
   - numpy=1.26.4
   - scipy=1.13.1
   - numba=0.60.0
@@ -56,6 +60,7 @@ dependencies:
   - quaternion=2023.0.4
   - pillow=9.5.0
   - attrs=25.3.0
+  - imageio=2.37.0
   - imageio-ffmpeg=0.6.0
   - tqdm=4.67.1
   - gitpython=3.1.45
@@ -67,7 +72,6 @@ dependencies:
       - torch==2.7.0+cu118
       - torchvision==0.22.0+cu118
       - matplotlib==3.9.4
-      - imageio==2.37.2
       - transformers==4.26.0
       - tokenizers==0.13.3
       - huggingface-hub==0.36.2

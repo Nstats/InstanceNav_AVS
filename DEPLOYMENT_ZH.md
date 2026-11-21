@@ -59,9 +59,26 @@ HM3D场景、模型权重和API配置仍按上面的本地资源要求准备。
 
 ## Python 环境要求
 
-先创建并激活适合本机 CUDA 的 Python 环境，依赖见 `README.md`、`environment.yml` 和 `reproduction/requirements-runtime.txt`。历史验证环境使用 Python 3.9.23、Habitat-Sim 0.2.4、transformers 4.26.0、PyTorch3D 0.7.9；PyTorch/CUDA 版本应与本机驱动和 GPU 匹配。
+在另一台 Linux x86_64 机器上，从仓库根目录创建环境。`environment.yml` 固定了当前测评使用的主要版本，包括 Python 3.9.23、Habitat-Sim 0.2.4（display / no Bullet）、PyTorch 2.7.0+cu118、torchvision 0.22.0+cu118 和 transformers 4.26.0。Habitat-Lab 0.2.1 以 editable 方式安装到新机的仓库路径。
 
-启动脚本默认使用当前 PATH 中的 `python`；可用 `PSGNAV_PYTHON=/absolute/path/to/python` 显式指定解释器。GLIP 补丁见 `patches/glip_torch2.patch`，GroundingDINO 的 PyTorch 2.7 构建适配见 `patches/groundingdino-torch27-build.patch`。这些补丁用于构建兼容性，按本机依赖版本选择使用。
+```bash
+PYTHONNOUSERSITE=1 conda env create --no-default-packages -f environment.yml
+conda activate psgnav-instance
+```
+
+创建后，按 `environment.yml` 顶部的命令构建 PyTorch3D 0.7.9 和 GroundingDINO 0.1.0 的 CUDA 扩展。将 `CUDA_HOME` 设为新机的 CUDA 11.8 Toolkit 路径，确认 `$CUDA_HOME/bin/nvcc --version` 显示 11.8，并使用兼容的 C++ 编译器。有多个 GPU 架构时，`TORCH_CUDA_ARCH_LIST` 应覆盖要用于测评的显卡；L20 对应 `8.9`。
+
+系统库和传递依赖仍由 Conda 和 pip 解析。数据、权重、缓存与 `.env` 按上面的本地资源约定准备，启动器会从当前仓库设置路径。安装后可检查两个 CUDA 扩展能否加载，再跑对应启动器的预检。
+
+```bash
+python -m pip check
+python -c 'import torch, habitat, habitat_sim, pytorch3d._C, groundingdino._C; assert torch.cuda.is_available(); print(torch.__version__, torch.version.cuda, habitat_sim.__version__, habitat.__file__)'
+bash scripts/run_instance100.sh --check-only
+# 如需运行 CoIN
+bash scripts/run_coin.sh --check-only
+```
+
+使用 `--nav-base vlfm` 时，还需在新机准备 VLFM checkout、其中的 `.vlfm-deps`、模型服务权重，以及本仓库 `data/vlfm/pointnav_weights_state_dict.pth`。设置 `VLFM_ROOT` 为新机的 VLFM 路径，通过 `VLFM_PYTHON="$(command -v python)" bash scripts/launch_vlfm_servers.sh` 使用刚创建的环境启动服务。标准 PSG-Nav 测评无需这些资源。
 
 ## 使用环境与运行
 
