@@ -46,6 +46,16 @@ bash scripts/run_coin_e0.sh --vlm "$VLM" --gpus "$GPUS" --instance-rejection-pol
 #GPU=0
 #bash scripts/run_coin_e0.sh --vlm "$VLM" --gpu "$GPU" "${E1[@]}" --timestamp coin_e1_r1
 #bash scripts/run_coin_e0.sh --vlm "$VLM" --gpu "$GPU" --timestamp coin_e0_strict_r2
+# Three more on the same machine (H20); each pairs with E0_r2 there:
+#   nodesc  E0 with the instance description kept out of exploration (category name only), as
+#           on InstanceNav. Decides whether both benchmarks can use one setting, i.e. whether
+#           "AVS leaves the base's exploration unchanged" holds on CoIN too.
+#   A0E5    E0 + two yes answers before committing (Table 6 row, still to run).
+#   E2cat   E0 with the VLM checking the category only: does the full description matter?
+#           (InstanceNav E2: -26.6, same as no verification.)
+#bash scripts/run_coin_e0.sh --vlm "$VLM" --gpu "$GPU" --enable-instance-description-for-exploration false --timestamp coin_e0_nodesc_r1
+#bash scripts/run_coin_e0.sh --vlm "$VLM" --gpu "$GPU" --instance-confirmation-threshold 2 --timestamp coin_a0e5_r1
+#bash scripts/run_coin_e0.sh --vlm "$VLM" --gpu "$GPU" --instance-verification-scope category --timestamp coin_e2cat_r1
 
 # Done (2026-11-20/21), one run each (SR / SPL):
 #bash scripts/run_coin_e0.sh --vlm "$VLM" --gpus 0,1 --timestamp coin_e0_strict_r1   # 14.0 / 4.03
