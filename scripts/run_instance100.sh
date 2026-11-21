@@ -64,6 +64,9 @@ unset ENABLE_INSTANCE_CONFIRMATION_BEFORE_FIND_GOAL
 #   gemini-2.5-flash：走 OpenRouter，模型名为 google/gemini-2.5-flash，凭据是 OPENROUTER_API_KEY。
 #   qwen3-vl-8b-instruct：走硅基流动，模型名为 Qwen/Qwen3-VL-8B-Instruct，凭据是 SILICONFLOW_API_KEY。
 : "${VLM:=qwen3.5-flash}"  # --vlm
+# 物体导航底座 (--nav-base)：psgnav（默认，运行 PSG_Nav.py，行为不变）或 vlfm（运行 VLFM_Nav.py）。
+#   vlfm 需先启动 scripts/launch_vlfm_servers.sh；实例核验开启时须 --enable-candidate-approach false（A0）。
+: "${NAV_BASE:=psgnav}"  # --nav-base
 
 # 0: preflight then navigate. --check-only sets 1 and exits after validation.
 check_only=0
@@ -131,6 +134,9 @@ Options:
   --instance-collect-only BOOL      true/false/1/0/yes/no (default: false)
                                     Data collection only: log intended locks, never stop early
                                     Requires positive_match, instance confirmation, no post check
+  --nav-base NAME                   psgnav (default, PSG_Nav.py) or vlfm (VLFM_Nav.py; needs
+                                    scripts/launch_vlfm_servers.sh; with instance confirmation
+                                    on it requires --enable-candidate-approach false)
   --timestamp NAME                  Result directory id; required again with --resume
   --enable-relative-evidence BOOL   Relative-evidence stopping and candidate comparison (default: false)
   --relative-evidence-calibration PATH
@@ -300,6 +306,11 @@ while (( $# > 0 )); do
       VLM="$2"
       shift 2
       ;;
+    --nav-base)
+      require_option_value "$1" "${2:-}"
+      NAV_BASE="$2"
+      shift 2
+      ;;
     --timestamp)
       require_option_value "$1" "${2:-}"
       user_timestamp="$2"
@@ -390,6 +401,11 @@ if [[ "$ENABLE_INSTANCE_CONFIRMATION" == true && "$ENABLE_POST_CONFIRMATION_CONT
   exit 2
 fi
 require_rag_mode RAG_MODE
+case "$NAV_BASE" in
+  psgnav) nav_entry=PSG_Nav.py ;;
+  vlfm) nav_entry=VLFM_Nav.py ;;
+  *) echo "NAV_BASE must be psgnav or vlfm, got: ${NAV_BASE}" >&2; exit 2 ;;
+esac
 case "$VLM" in
   qwen3.5-flash|gemini-2.5-flash|qwen3-vl-8b-instruct) ;;
   *) echo "VLM must be qwen3.5-flash, gemini-2.5-flash, or qwen3-vl-8b-instruct, got: ${VLM}" >&2; exit 2 ;;
@@ -457,6 +473,7 @@ export ENABLE_RELATIVE_EVIDENCE RELATIVE_EVIDENCE_CALIBRATION RELATIVE_EVIDENCE_
 export RELATIVE_EVIDENCE_EARLY_STOP RELATIVE_EVIDENCE_PAIRWISE RELATIVE_EVIDENCE_DROP_REJECTED
 export RAG_MODE
 export VLM
+export NAV_BASE
 case "$VLM" in
   qwen3.5-flash)
     export QWEN_MODEL_NAME=qwen3.5-flash
@@ -579,6 +596,7 @@ run_worker() {
     echo "Relative evidence: ${relative_evidence_header}"
     echo "RAG_MODE: ${RAG_MODE}"
     echo "VLM: ${VLM}"
+    echo "NAV_BASE: ${NAV_BASE}"
     echo "QWEN_MODEL_NAME: ${QWEN_MODEL_NAME}"
     echo "PSGNAV_MODEL_BACKEND: ${PSGNAV_MODEL_BACKEND}"
     echo "Log: ${log_file}"
@@ -590,7 +608,7 @@ run_worker() {
     echo "Completed tasks are listed below as [Schedule] lines and in ${tasks_file}."
   } >>"${log_file}"
   cmd=(
-    "$psgnav_python" -u PSG_Nav.py
+    "$psgnav_python" -u "${nav_entry}"
     --dataset instancenav --dataset_split val
     --config configs/runtime/instancenav_unseen10_1000atomic_1m.yaml
     --rag_mode "${RAG_MODE}" --episode_start 0 --episode_end 100
@@ -832,7 +850,7 @@ if (( preflight_status != 0 )); then
 fi
 
 set +e
-PSGNAV_LOG_FILE="${log_file}" PSGNAV_PROGRESS_FD=3 "$psgnav_python" -u PSG_Nav.py --dataset instancenav --dataset_split val \
+PSGNAV_LOG_FILE="${log_file}" PSGNAV_PROGRESS_FD=3 "$psgnav_python" -u "${nav_entry}" --dataset instancenav --dataset_split val \
   --config configs/runtime/instancenav_unseen10_1000atomic_1m.yaml \
   --rag_mode "${RAG_MODE}" --episode_start 0 --episode_end 100 \
   "${passthrough[@]}" >>"${log_file}" 2>&1

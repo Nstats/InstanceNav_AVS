@@ -45,6 +45,11 @@ set -euo pipefail
 : "${GOAL_REFRESH_AFTER_LOCK:=false}"
 : "${GOAL_REFRESH_RADIUS_M:=1.5}"
 : "${DEPTH_VALID_FRACTION_GATE:=0}"
+# Object-navigation base (--nav-base): psgnav (default, PSG_Nav.py, unchanged) or vlfm
+# (VLFM_Nav.py; start scripts/launch_vlfm_servers.sh first). VLFM ignores the PSG-Nav-only
+# switches (description exploration, relations, group/room filters, base fixes); with
+# instance confirmation on it runs AVS A0 only (--enable-candidate-approach false).
+: "${NAV_BASE:=psgnav}"
 
 # Defaults: the 100 frozen val_unseen episodes on GPUs 0,1. A same-named environment
 # variable sets the starting value; a flag overrides it. --subset 0 / --full runs
@@ -86,6 +91,10 @@ Runs with no options: the 100 frozen val_unseen episodes on GPUs 0,1
   --timestamp NAME   Result id (default: <split>_<date>_<pid>); required again with --resume
   --resume           Continue the same timestamp
   --check-only       Run tools/preflight_coin.py and exit
+  --nav-base NAME    psgnav (default, PSG_Nav.py) or vlfm (VLFM_Nav.py; needs
+                     scripts/launch_vlfm_servers.sh). vlfm + instance confirmation = AVS A0
+                     and requires --enable-candidate-approach false; with
+                     --enable-instance-confirmation false it is the original VLFM
 
 Navigation switches take the same flags as scripts/run_instance100.sh, for example
   --enable-instance-description-for-exploration BOOL   (default: true)
@@ -137,6 +146,7 @@ while (( $# > 0 )); do
     --worker-gpu) need_value "$flag" $# "${2:-}"; worker_gpu="$2"; shift 2 ;;
     --work-queue) need_value "$flag" $# "${2:-}"; work_queue="$2"; shift 2 ;;
     --timestamp) need_value "$flag" $# "${2:-}"; user_timestamp="$2"; shift 2 ;;
+    --nav-base) need_value "$flag" $# "${2:-}"; NAV_BASE="$2"; shift 2 ;;
     --enable-relative-evidence|--relative-evidence-*)
       echo 'Relative evidence is calibrated on InstanceNav only and is not available for CoIN.' >&2
       exit 2 ;;
@@ -202,6 +212,15 @@ fi
 if [[ "$INSTANCE_COLLECT_ONLY" == true && "$ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK" == true ]]; then
   fail 'INSTANCE_COLLECT_ONLY cannot be combined with ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK'
 fi
+case "$NAV_BASE" in
+  psgnav) nav_entry=PSG_Nav.py ;;
+  vlfm)
+    nav_entry=VLFM_Nav.py
+    if [[ "$ENABLE_INSTANCE_CONFIRMATION" == true && "$ENABLE_CANDIDATE_APPROACH" != false ]]; then
+      fail 'NAV_BASE=vlfm with instance confirmation runs AVS A0 only: pass --enable-candidate-approach false'
+    fi ;;
+  *) fail "NAV_BASE must be psgnav or vlfm, got: $NAV_BASE" ;;
+esac
 case "$VLM" in
   qwen3.5-flash) export QWEN_MODEL_NAME=qwen3.5-flash PSGNAV_MODEL_BACKEND=openai ;;
   gemini-2.5-flash) export QWEN_MODEL_NAME=google/gemini-2.5-flash PSGNAV_MODEL_BACKEND=openrouter ;;
@@ -228,7 +247,7 @@ export ENABLE_OBJECT_RELATIONS ENABLE_GROUP_LLM_FILTER ENABLE_ROOM_LLM_FILTER EN
 export INSTANCE_CONFIRMATION_THRESHOLD VERIFY_BEFORE_CANDIDATE INSTANCE_CONFIRMATION_MODE INSTANCE_VERIFICATION_PROMPT
 export ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY INSTANCE_COLLECT_ONLY
 export ENABLE_RELATIVE_EVIDENCE RAG_MODE VLM ENABLE_CANDIDATE_APPROACH
-export GOAL_REFRESH_AFTER_LOCK GOAL_REFRESH_RADIUS_M DEPTH_VALID_FRACTION_GATE
+export GOAL_REFRESH_AFTER_LOCK GOAL_REFRESH_RADIUS_M DEPTH_VALID_FRACTION_GATE NAV_BASE
 unset ENABLE_INSTANCE_CONFIRMATION_BEFORE_FIND_GOAL
 
 script_path="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
@@ -252,7 +271,7 @@ switch_summary() {
       INSTANCE_CONFIRMATION_THRESHOLD VERIFY_BEFORE_CANDIDATE INSTANCE_CONFIRMATION_MODE INSTANCE_VERIFICATION_PROMPT \
       ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY INSTANCE_COLLECT_ONLY \
       ENABLE_RELATIVE_EVIDENCE RAG_MODE VLM QWEN_MODEL_NAME PSGNAV_MODEL_BACKEND ENABLE_CANDIDATE_APPROACH \
-      GOAL_REFRESH_AFTER_LOCK GOAL_REFRESH_RADIUS_M DEPTH_VALID_FRACTION_GATE; do
+      GOAL_REFRESH_AFTER_LOCK GOAL_REFRESH_RADIUS_M DEPTH_VALID_FRACTION_GATE NAV_BASE; do
     echo "${name}: ${!name}"
   done
 }
@@ -289,7 +308,7 @@ else
 fi
 results_root="$PWD/data/results_coin_${run_timestamp}"
 log_prefix="$PWD/outputs/coin_${run_timestamp}"
-nav_cmd=("$psgnav_python" -u PSG_Nav.py --dataset coin --dataset_split "$split" --config "$config"
+nav_cmd=("$psgnav_python" -u "$nav_entry" --dataset coin --dataset_split "$split" --config "$config"
          --rag_mode "$RAG_MODE" --timestamp "$run_timestamp")
 
 run_worker() {
@@ -326,8 +345,8 @@ names = ('LANDMARK_COMPARISON_REPEATS LANDMARK_COMPARISON_WORKERS ENABLE_INSTANC
          'ENABLE_RELATIVE_EVIDENCE RAG_MODE VLM QWEN_MODEL_NAME PSGNAV_MODEL_BACKEND '
          'INSTANCE_VERIFICATION_PROMPT PSGNAV_API_MAX_TOKENS PSGNAV_API_CACHE_SIZE PSGNAV_EXACT_CACHE '
          'ENABLE_CANDIDATE_APPROACH GOAL_REFRESH_AFTER_LOCK GOAL_REFRESH_RADIUS_M '
-         'DEPTH_VALID_FRACTION_GATE').split()
-info = {'dataset': 'coin', 'protocol': 'coin-official', 'split': os.environ['RUN_INFO_SPLIT'],
+         'DEPTH_VALID_FRACTION_GATE NAV_BASE').split()
+info = {'dataset': 'coin', 'protocol': 'coin-official', 'nav_base': os.environ['NAV_BASE'], 'split': os.environ['RUN_INFO_SPLIT'],
         'config': os.environ['RUN_INFO_CONFIG'], 'subset': os.environ['RUN_INFO_SUBSET'] or None,
         'pool': os.environ['RUN_INFO_POOL'] or None,
         'seed': int(os.environ['RUN_INFO_SEED']), 'timestamp': os.environ['RUN_INFO_TIMESTAMP'],
@@ -351,6 +370,11 @@ sources = ['PSG_Nav.py', 'utils/object_detection.py', 'utils/collection_recorder
            'scripts/run_coin.sh', 'configs/coin_val_unseen_subset100_seed77.json',
            'configs/dataset_categories.py', 'graph/meta_func/io_func.py', 'graph/meta_func/nav_func.py',
            'utils/utils_sg_uq/merge_utils.py', 'utils/utils_fmm/fmm_planner.py']
+if info['nav_base'] == 'vlfm':
+    sources += ['VLFM_Nav.py', 'nav_bases/vlfm_agent.py', 'nav_bases/avs_decision.py',
+                'nav_bases/vlfm_pointnav.py', 'utils/coin_geometry.py']
+    info['vlfm_commit'] = subprocess.run(['git', '-C', os.environ.get('VLFM_ROOT', '/data/lxj/vlfm'), 'rev-parse',
+                                          'HEAD'], capture_output=True, text=True).stdout.strip() or None
 info['source_sha256'] = {p: hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in sources}
 with open(sys.argv[1], 'w') as stream:
     json.dump(info, stream, indent=2)
