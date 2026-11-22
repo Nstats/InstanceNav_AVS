@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# CoIN x PSG-Nav runs, qwen3.5-flash, the 100 frozen val_unseen episodes
-# (configs/coin_val_unseen_subset100_seed77.json), official CoIN protocol (0.25 m, 500 steps).
+# CoIN x PSG-Nav runs, qwen3.5-flash, 100 frozen episodes per split
+# (configs/coin_<split>_subset100_seed77.json), official CoIN protocol (0.25 m, 500 steps).
 #   E0  PSG-Nav + AVS (scripts/run_coin_e0.sh): A0 + match_strict_no, base fixes off. E0_r1
 #       (14.0 / 4.03) was the best of four configurations; r2 and r3 give an estimate free of
 #       that selection and of single-run noise (main table: mean of 3).
@@ -33,32 +33,21 @@ VLM=qwen3.5-flash
 E1=(--enable-instance-confirmation false --enable-candidate-approach true)
 
 # ---- This machine, two GPUs (0,1) -------------------------------------------------------
-# The third E0 run and the two ablations; they pair with E0_r1 and E0_r3 on this machine.
+# E0 on the 100 frozen episodes of the other two CoIN splits (configs/coin_<split>_subset100_seed77.json,
+# same selection rule and seed as val_unseen: val_seen all 86 targets + 14, val_seen_synonyms
+# all 36 targets + 64). With the val_unseen E0 runs these decide whether the main table reports
+# CoIN on val_unseen only or on all three splits (Context-Nav reports all three: 13.5 / 20.3 /
+# 11.3 SR). The second run of each split runs on the H20 (scripts/run_continuous_evaluation_coin_h20.sh).
 GPUS=0,1
-bash scripts/run_coin_e0.sh --vlm "$VLM" --gpus "$GPUS" --timestamp coin_e0_strict_r3
-bash scripts/run_coin_e0.sh --vlm "$VLM" --gpus "$GPUS" --enable-candidate-approach true --timestamp coin_b_r1
-bash scripts/run_coin_e0.sh --vlm "$VLM" --gpus "$GPUS" --instance-rejection-policy non_yes --timestamp coin_a0e4_r1
+bash scripts/run_coin_e0.sh --vlm "$VLM" --gpus "$GPUS" --split val_seen --timestamp coin_e0_val_seen_r1
+bash scripts/run_coin_e0.sh --vlm "$VLM" --gpus "$GPUS" --split val_seen_synonyms --timestamp coin_e0_val_seen_synonyms_r1
 
-# ---- Single-GPU machine (GPU 0); uncomment there, and comment out the block above --------
-# PSG-Nav original (E1) and the second E0 run, back to back on the same machine. Copy
-# data/results_coin_<timestamp>/ and outputs/coin_<timestamp>_gpu0.log back here afterwards.
-# Set PSGNAV_PYTHON if that machine's interpreter is elsewhere.
-#GPU=0
-#bash scripts/run_coin_e0.sh --vlm "$VLM" --gpu "$GPU" "${E1[@]}" --timestamp coin_e1_r1
-#bash scripts/run_coin_e0.sh --vlm "$VLM" --gpu "$GPU" --timestamp coin_e0_strict_r2
-# Three more on the same machine (H20); each pairs with E0_r2 there:
-#   nodesc  E0 with the instance description kept out of exploration (category name only), as
-#           on InstanceNav. Decides whether both benchmarks can use one setting, i.e. whether
-#           "AVS leaves the base's exploration unchanged" holds on CoIN too.
-#   A0E5    E0 + two yes answers before committing (Table 6 row, still to run).
-#   E2cat   E0 with the VLM checking the category only: does the full description matter?
-#           (InstanceNav E2: -26.6, same as no verification.)
-#bash scripts/run_coin_e0.sh --vlm "$VLM" --gpu "$GPU" --enable-instance-description-for-exploration false --timestamp coin_e0_nodesc_r1
-#bash scripts/run_coin_e0.sh --vlm "$VLM" --gpu "$GPU" --instance-confirmation-threshold 2 --timestamp coin_a0e5_r1
-#bash scripts/run_coin_e0.sh --vlm "$VLM" --gpu "$GPU" --instance-verification-scope category --timestamp coin_e2cat_r1
-
-# Done (2026-11-20/21), one run each (SR / SPL):
+# Done (2026-11-20/22), val_unseen, one run each (SR / SPL):
 #bash scripts/run_coin_e0.sh --vlm "$VLM" --gpus 0,1 --timestamp coin_e0_strict_r1   # 14.0 / 4.03
 #bash scripts/run_coin_e2.sh --vlm "$VLM" --gpus 0,1 --timestamp coin_e2_strict_r1   # 14.0 / 4.36
 #bash scripts/run_coin_e2.sh --vlm "$VLM" --gpus 0,1 --instance-verification-prompt match_context_optional --timestamp coin_e2_ctx_r1   # 12.0 / 5.56
 #bash scripts/run_coin_e2.sh --vlm "$VLM" --gpus 0,1 --instance-verification-prompt match --timestamp coin_e2_match_r1   # 8.0 / 2.95
+#bash scripts/run_coin_e0.sh --vlm "$VLM" --gpus 0,1 --timestamp coin_e0_strict_r3   # 14.0 / 4.36
+#bash scripts/run_coin_e0.sh --vlm "$VLM" --gpus 0,1 --enable-candidate-approach true --timestamp coin_b_r1   # 13.0 / 3.65
+#bash scripts/run_coin_e0.sh --vlm "$VLM" --gpus 0,1 --instance-rejection-policy non_yes --timestamp coin_a0e4_r1   # 13.0 / 3.44
+#bash scripts/run_coin_e0.sh --vlm "$VLM" --gpu 0 "${E1[@]}" --timestamp coin_e1_r1   # H20: 1.0 / 0.65

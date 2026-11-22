@@ -139,3 +139,40 @@ def test_frozen_pool_matches_the_real_split():
     assert cs.select_from_pool(full, keys, 100, 77) == sorted(map(list, keys))
     subset = cd.CoINDataset(SimpleNamespace(**vars(config), SUBSET_MANIFEST=str(ROOT / POOL))).episodes
     assert {cd.episode_key(ep) for ep in subset} == keys
+
+
+SEEN_POOLS = {'val_seen': ('configs/coin_val_seen_subset100_seed77.json', 831, 86),
+              'val_seen_synonyms': ('configs/coin_val_seen_synonyms_subset100_seed77.json', 359, 36)}
+
+
+@pytest.mark.parametrize('split', sorted(SEEN_POOLS))
+def test_frozen_seen_pool_files(split):
+    path, source_count, targets = SEEN_POOLS[split]
+    pool, keys = cs.load_pool(ROOT / path)
+    assert pool['split'] == split and pool['seed'] == 77
+    assert pool['selected_count'] == len(keys) == 100
+    assert pool['source_count'] == source_count and pool['targets'] == targets
+    assert pool['episode_keys'] == sorted(pool['episode_keys'])
+
+
+def test_launcher_has_a_pool_for_every_split():
+    script = (ROOT / 'scripts/run_coin.sh').read_text()
+    for split, (path, _, _) in SEEN_POOLS.items():
+        assert re.search(rf'^{split}_pool="([^"]+)"$', script, re.M).group(1) == path
+    assert 'pool_var="${split}_pool"' in script
+
+
+@pytest.mark.parametrize('split', sorted(SEEN_POOLS))
+def test_frozen_seen_pool_matches_the_real_split(split):
+    if not (COIN_ROOT / split).is_dir():
+        pytest.skip(f'CoIN-Bench {split} not downloaded')
+    import utils.coin_dataset as cd
+    path, source_count, targets = SEEN_POOLS[split]
+    config = SimpleNamespace(DATA_PATH=str(COIN_ROOT / '{split}' / '{split}.json.gz'), SPLIT=split,
+                             SCENES_DIR=str(ROOT / 'data/scene_datasets'))
+    full = cd.CoINDataset(config).episodes
+    assert len(full) == source_count
+    _, keys = cs.load_pool(ROOT / path)
+    pool = cs.restrict_to_pool(full, keys)
+    assert len({(ep.scene_id, ep.object_instance_id) for ep in pool}) == targets
+    assert cs.select(full, 100, 77) == sorted(map(list, keys))

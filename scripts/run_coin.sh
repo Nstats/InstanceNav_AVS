@@ -7,12 +7,14 @@
 #
 # The default evaluation is a fixed 100-episode val_unseen subset tracked in git
 # (configs/coin_val_unseen_subset100_seed77.json: all 47 targets, then 53 more episodes, seed 77).
-# Every val_unseen subset is drawn from those 100 episodes; other splits draw from the whole split.
+# Each split has such a frozen 100-episode pool (configs/coin_<split>_subset100_seed77.json,
+# same rule and seed: val_seen all 86 targets + 14, val_seen_synonyms all 36 targets + 64);
+# every subset of a split is drawn from its pool, --full runs the whole split.
 #
 #   bash scripts/run_coin.sh                    # default: the 100 frozen val_unseen episodes, GPUs 0,1
 #   bash scripts/run_coin.sh --subset 20        # 20 of the 100 frozen episodes
 #   bash scripts/run_coin.sh --full             # whole val_unseen split (459 episodes)
-#   bash scripts/run_coin.sh --split val_seen --subset 20
+#   bash scripts/run_coin.sh --split val_seen   # the 100 frozen val_seen episodes
 #   bash scripts/run_coin.sh --subset 3 --gpu 2 # one sequential process (smoke runs)
 set -euo pipefail
 
@@ -63,8 +65,10 @@ set -euo pipefail
 : "${COIN_SPLIT:=val_unseen}"
 : "${COIN_SUBSET:=100}"
 : "${COIN_SEED:=77}"
-# Frozen val_unseen pool (tracked). val_unseen subsets are drawn from it only.
+# Frozen 100-episode pools (tracked); a split's subsets are drawn from its pool only.
 val_unseen_pool="configs/coin_val_unseen_subset100_seed77.json"
+val_seen_pool="configs/coin_val_seen_subset100_seed77.json"
+val_seen_synonyms_pool="configs/coin_val_seen_synonyms_subset100_seed77.json"
 split="$COIN_SPLIT"
 subset="$COIN_SUBSET"
 seed="$COIN_SEED"
@@ -86,10 +90,12 @@ Runs with no options: the 100 frozen val_unseen episodes on GPUs 0,1
 
   --split S          val_seen | val_seen_synonyms | val_unseen (default: val_unseen)
   --subset N         Seeded subset of N episodes (tools/coin_subset.py), distinct targets
-                     first (default: 100; 0 runs the whole split). On val_unseen the N
-                     episodes come from the 100 frozen ones (N <= 100; 100 = all of them);
-                     on the other splits from the whole split.
-  --full             Run the whole split (same as --subset 0; val_unseen: 459 episodes)
+                     first (default: 100; 0 runs the whole split). The N episodes come from
+                     the split's 100 frozen ones (N <= 100; 100 = all of them):
+                     ${val_unseen_pool}, ${val_seen_pool},
+                     ${val_seen_synonyms_pool}.
+  --full             Run the whole split (same as --subset 0; val_unseen 459, val_seen 831,
+                     val_seen_synonyms 359 episodes)
   --seed N           Subset seed (default: 77)
   --config PATH      Habitat config (default: configs/coin_contextnav.yaml; ignored with --subset)
   --gpus A,B         Two workers sharing one task queue (default: 0,1)
@@ -314,10 +320,12 @@ switch_summary() {
   done
 }
 
-# val_unseen subsets come from the frozen pool; the whole split (--full) and the other
-# splits do not use one.
+# Subsets come from the split's frozen pool; the whole split (--full) uses none.
 subset_pool=""
-if [[ -n "$subset" && "$split" == val_unseen ]]; then subset_pool="$val_unseen_pool"; fi
+if [[ -n "$subset" ]]; then
+  pool_var="${split}_pool"
+  subset_pool="${!pool_var}"
+fi
 
 # Workers receive the launcher's config; only the launcher writes a subset.
 if [[ -n "$subset" && -z "$worker_gpu" ]]; then
@@ -407,6 +415,7 @@ sources = ['PSG_Nav.py', 'utils/object_detection.py', 'utils/collection_recorder
            'utils/collect_only.py', 'utils/instance_evidence.py', 'utils/instance_verifier.py',
            'utils/model_client.py', 'configs/navigation_config.py', 'configs/dataset_registry.py',
            'scripts/run_coin.sh', 'configs/coin_val_unseen_subset100_seed77.json',
+           'configs/coin_val_seen_subset100_seed77.json', 'configs/coin_val_seen_synonyms_subset100_seed77.json',
            'configs/dataset_categories.py', 'graph/meta_func/io_func.py', 'graph/meta_func/nav_func.py',
            'utils/utils_sg_uq/merge_utils.py', 'utils/utils_fmm/fmm_planner.py']
 if info['nav_base'] == 'vlfm':
