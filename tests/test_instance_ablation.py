@@ -187,6 +187,8 @@ def test_fixed_presets_differ_only_by_planned_variable():
                 'T0': {'INSTANCE_REJECTION_POLICY': 'non_yes', 'INSTANCE_REJECTION_SCOPE': 'approach'},
                 'T0no': {'INSTANCE_REJECTION_POLICY': 'no', 'INSTANCE_REJECTION_SCOPE': 'approach'},
                 'A0': {'ENABLE_CANDIDATE_APPROACH': 'false'},
+                'A0VisibleEvidence': {'ENABLE_CANDIDATE_APPROACH': 'false',
+                                      'INSTANCE_VERIFICATION_PROMPT': 'match_visible_evidence'},
                 'RA': {'VERIFY_BEFORE_CANDIDATE': 'true'},
                 'A0E3': {'ENABLE_CANDIDATE_APPROACH': 'false', 'INSTANCE_REJECTION_POLICY': 'no'},
                 'A0E4': {'ENABLE_CANDIDATE_APPROACH': 'false', 'INSTANCE_REJECTION_POLICY': 'non_yes'},

@@ -206,6 +206,19 @@ def test_strict_no_prompt_changes_only_the_rule_sentence(monkeypatch):
     assert strict.startswith(head) and strict.endswith(tail)  # yes wording, schema text and stage prefix shared
 
 
+def test_visible_evidence_replaces_only_the_affirmative_rule(monkeypatch):
+    strict = _positive_match_prompt(monkeypatch, 'match_strict_no')
+    visible = _positive_match_prompt(monkeypatch, 'match_visible_evidence')
+    expected = (
+        'Answer "yes" only when visible evidence from the description, such as an appearance detail or a spatial '
+        'relation, supports identifying the boxed object as the intended instance. Matching the category or '
+        'being the only boxed candidate is not sufficient. A single candidate can still be a match; no '
+        'comparison object is required. If another visible object, boxed or unboxed, fits the description '
+        'equally well and you cannot tell which one is intended, answer "unknown" for the ambiguous candidate.'
+    )
+    assert visible == strict.replace('Matching the object category alone is not sufficient.', expected)
+
+
 def test_unknown_verification_prompt_is_rejected(monkeypatch):
     from configs.navigation_config import instance_verification_prompt
     monkeypatch.setenv('INSTANCE_VERIFICATION_PROMPT', 'strict')

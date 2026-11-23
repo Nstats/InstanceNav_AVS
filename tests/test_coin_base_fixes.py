@@ -178,6 +178,10 @@ def test_e0_e2_presets_export_their_switches(tmp_path):
     result, e0 = _launcher_capture(tmp_path, 'scripts/run_coin_e0.sh')
     assert result.returncode == 0, result.stderr
     assert e0 == 'false|match_strict_no|false|1.5|0'
+    result, e0 = _launcher_capture(tmp_path, 'scripts/run_coin_e0.sh',
+                                   '--instance-verification-prompt', 'match_visible_evidence')
+    assert result.returncode == 0, result.stderr
+    assert e0 == 'false|match_visible_evidence|false|1.5|0'
     result, e2 = _launcher_capture(tmp_path, 'scripts/run_coin_e2.sh')
     assert result.returncode == 0, result.stderr
     assert e2 == 'false|match_strict_no|true|1.5|0.5'

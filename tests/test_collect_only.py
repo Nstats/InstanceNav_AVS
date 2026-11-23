@@ -379,7 +379,7 @@ def test_three_round_command_pins_collection_and_stops_after_failure(tmp_path, m
     fake = scripts / 'run_coin.sh'
     fake.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$COLLECT_TEST_CALLS"\nexit "${COLLECT_TEST_EXIT:-0}"\n')
     command = ['bash', str(scripts / 'run_continuous_coin_collection.sh')]
-    subprocess.run(command, check=True, capture_output=True)
+    subprocess.run(command, cwd=tmp_path, check=True, capture_output=True)
     calls = capture.read_text().splitlines()
     assert len(calls) == 3
     for index, call in enumerate(calls, 1):
@@ -387,8 +387,12 @@ def test_three_round_command_pins_collection_and_stops_after_failure(tmp_path, m
         assert '--gpus 0,1' in call and call.endswith(f'_r{index}')
     assert len({call.split('--timestamp ')[1] for call in calls}) == 3
     capture.unlink()
+    subprocess.run([*command, '--check-only'], cwd=tmp_path, check=True, capture_output=True)
+    calls = capture.read_text().splitlines()
+    assert len(calls) == 1 and calls[0].endswith('--check-only') and '--timestamp' not in calls[0]
+    capture.unlink()
     monkeypatch.setenv('COLLECT_TEST_EXIT', '9')
-    result = subprocess.run(command, capture_output=True)
+    result = subprocess.run(command, cwd=tmp_path, capture_output=True)
     assert result.returncode == 9 and len(capture.read_text().splitlines()) == 1
 
 

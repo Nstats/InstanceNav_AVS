@@ -110,7 +110,7 @@ Runs with no options: the 100 frozen val_unseen episodes on GPUs 0,1
 
 Navigation switches take the same flags as scripts/run_instance100.sh, for example
   --enable-instance-description-for-exploration BOOL   (default: true)
-  --instance-verification-prompt match|match_strict_no|match_context_optional (default: match)
+  --instance-verification-prompt match|match_strict_no|match_visible_evidence|match_context_optional (default: match)
   --enable-instance-confirmation BOOL                  (default: true)
   --instance-confirmation-mode positive_match|contradiction
   --verify-before-candidate BOOL, --instance-confirmation-threshold N, --rag-mode N
@@ -212,8 +212,8 @@ done
 INSTANCE_CONFIRMATION_MODE="${INSTANCE_CONFIRMATION_MODE,,}"
 INSTANCE_VERIFICATION_PROMPT="${INSTANCE_VERIFICATION_PROMPT,,}"
 case "$INSTANCE_VERIFICATION_PROMPT" in
-  match|match_strict_no|match_context_optional) ;;
-  *) fail 'INSTANCE_VERIFICATION_PROMPT must be match, match_strict_no or match_context_optional' ;;
+  match|match_strict_no|match_visible_evidence|match_context_optional) ;;
+  *) fail 'INSTANCE_VERIFICATION_PROMPT must be match, match_strict_no, match_visible_evidence or match_context_optional' ;;
 esac
 INSTANCE_REJECTION_POLICY="${INSTANCE_REJECTION_POLICY,,}"
 INSTANCE_REJECTION_SCOPE="${INSTANCE_REJECTION_SCOPE,,}"

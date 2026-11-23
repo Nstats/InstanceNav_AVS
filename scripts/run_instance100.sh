@@ -28,9 +28,10 @@ unset ENABLE_INSTANCE_CONFIRMATION_BEFORE_FIND_GOAL
 #   positive_match：正面确认（默认）；只有 yes 保留，no/unknown 排除。
 #   contradiction：用显著冲突检测替代正面确认；yes 表示有冲突并排除，no/unknown 保留。
 : "${INSTANCE_CONFIRMATION_MODE:=positive_match}"  # --instance-confirmation-mode
-# INSTANCE_VERIFICATION_PROMPT (--instance-verification-prompt)：positive_match 核验提示词的版本，“是”的写法两版相同。
-#   match：原始提示词（默认），证据不足才答 unknown；实际上几乎从不答 unknown，“否”里混着“看不清”。
-#   match_strict_no：只有明确矛盾才答 no；看不清、被遮挡、属性或周围环境不在画面里都答 unknown。
+# INSTANCE_VERIFICATION_PROMPT (--instance-verification-prompt)：positive_match 的全类别统一核验规则。
+#   match：原始提示词，证据不足答 unknown。
+#   match_strict_no（默认）：只有明确矛盾才答 no；证据不清时答 unknown。
+#   match_visible_evidence：保留 strict_no，仅要求 yes 有指令中的可见证据；单框也可通过。
 : "${INSTANCE_VERIFICATION_PROMPT:=match_strict_no}"  # --instance-verification-prompt
 : "${INSTANCE_VERIFICATION_SCOPE:=instance}"  # --instance-verification-scope
 : "${INSTANCE_REJECTION_POLICY:=none}"  # --instance-rejection-policy
@@ -108,8 +109,9 @@ Options:
                                     positive_match (default) or contradiction
                                     Select the primary instance confirmation policy
   --instance-verification-prompt NAME
-                                    match or match_strict_no (default)
-                                    match_strict_no answers no only for a clear contradiction
+                                    match | match_strict_no (default) | match_visible_evidence
+                                    match_visible_evidence keeps strict_no and requires visible
+                                    evidence from the description to identify the instance
   --instance-verification-scope NAME
                                     instance (default) or category
   --instance-rejection-policy NAME  none (default), no, or non_yes; episode-local permanent rejection
@@ -363,8 +365,8 @@ case "$INSTANCE_CONFIRMATION_MODE" in
 esac
 INSTANCE_VERIFICATION_PROMPT="${INSTANCE_VERIFICATION_PROMPT,,}"
 case "$INSTANCE_VERIFICATION_PROMPT" in
-  match|match_strict_no) ;;
-  *) echo 'INSTANCE_VERIFICATION_PROMPT must be match or match_strict_no' >&2; exit 2 ;;
+  match|match_strict_no|match_visible_evidence) ;;
+  *) echo 'INSTANCE_VERIFICATION_PROMPT must be match, match_strict_no or match_visible_evidence' >&2; exit 2 ;;
 esac
 normalize_bool_var ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK
 normalize_bool_var PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY

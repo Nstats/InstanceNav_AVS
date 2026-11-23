@@ -110,7 +110,7 @@ def instance_confirmation_mode():
     return mode
 
 
-INSTANCE_VERIFICATION_PROMPTS = ('match', 'match_strict_no', 'match_context_optional')
+INSTANCE_VERIFICATION_PROMPTS = ('match', 'match_strict_no', 'match_visible_evidence', 'match_context_optional')
 
 
 def goal_refresh_after_lock_enabled():
@@ -146,10 +146,12 @@ def depth_valid_fraction_gate():
 
 
 def instance_verification_prompt():
-    """Wording of the positive_match yes/no/unknown rule; the yes wording is shared.
+    """Category-independent wording of the positive_match yes/no/unknown rule.
 
     match: the original prompt ("If evidence is inadequate, answer unknown.").
     match_strict_no: "no" only for a clear contradiction; unclear or not visible is "unknown".
+    match_visible_evidence: keep strict_no; require visible description evidence for "yes",
+        whether there is one box or many; equally plausible visible instances are ambiguous.
     match_context_optional: "yes" when the object's own appearance matches and nothing
         visible contradicts the description; surroundings that are out of view do not
         count against it (CoIN: auto-generated relations are often out of view or wrong).

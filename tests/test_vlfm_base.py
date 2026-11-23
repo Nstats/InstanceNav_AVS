@@ -229,14 +229,19 @@ def test_queue_scripts_parse_and_name_vlfm_runs():
     # Queue files are named by benchmark; _h20 runs on the H20 with GPU 0 only.
     queues = {'run_continuous_evaluation_instancenav.sh': ('vlfm_A0_r1', 'vlfm_E1_r1'),
               'run_continuous_evaluation_coin.sh': (),
-              'run_continuous_evaluation_coin_h20.sh': ('coin_vlfm_avs_r1', 'coin_vlfm_r1')}
+              'run_continuous_evaluation_coin_h20.sh': (),
+              'run_continuous_evaluation_instancenav_h20.sh': ()}
     for name, runs in queues.items():
         path = ROOT / 'scripts' / name
         assert subprocess.run(['bash', '-n', str(path)]).returncode == 0
-        active = [line for line in path.read_text().splitlines() if 'vlfm' in line and not line.startswith('#')]
-        assert sorted(line.split('--timestamp ')[1] for line in active if '--timestamp' in line) == sorted(runs)
+        commands = path.read_text().replace('\\\n', ' ').splitlines()
+        active = [line.split() for line in commands if line.startswith('bash ') and '--timestamp' in line]
+        vlfm_ids = [args[args.index('--timestamp') + 1] for args in active if 'vlfm' in args]
+        assert sorted(vlfm_ids) == sorted(runs)
         if name.endswith('_h20.sh'):
-            assert all('--gpu 0' in line for line in active if '--timestamp' in line)
+            for args in active:
+                flag = '--gpu' if '--gpu' in args else '--gpus'
+                assert args[args.index(flag) + 1] == '0'
 
 
 def test_local_vlfm_servers_bypass_the_proxy():

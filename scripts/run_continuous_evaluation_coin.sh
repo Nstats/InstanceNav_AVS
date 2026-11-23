@@ -1,57 +1,28 @@
 #!/usr/bin/env bash
-# CoIN x PSG-Nav runs, qwen3.5-flash, 100 frozen episodes per split
-# (configs/coin_<split>_subset100_seed77.json), official CoIN protocol (0.25 m, 500 steps).
-#   E0  PSG-Nav + AVS (scripts/run_coin_e0.sh): A0 + match_strict_no, base fixes off. E0_r1
-#       (14.0 / 4.03) was the best of four configurations; r2 and r3 give an estimate free of
-#       that selection and of single-run noise (main table: mean of 3).
-#   E1  PSG-Nav: instance verification off (category-count lock), main table. The launcher
-#       refuses verification off together with A0, so E1 keeps the candidate approach on
-#       (same as E1 on InstanceNav).
-#   B   E0 + active approach to unconfirmed candidates. Is A0's "no dedicated approach" also
-#       right on CoIN? (InstanceNav: approach -4.9.)
-#   E4  E0 + non-yes answers exclude the candidate for the episode (A0E4). The largest
-#       negative ablation on InstanceNav (-15.5); checks it on the second benchmark.
-#   VLFM base (--nav-base vlfm): the CoIN pair runs on the H20
-#       (scripts/run_continuous_evaluation_coin_h20.sh).
-# One run per configuration when its paired difference with E0 is significant; reruns
-# (_r2, _r3) only where it is not. The full split is run by hand at the end.
-#
-# Each line launches one experiment through scripts/run_coin.sh. Results go to
-# data/results_coin_<timestamp>/ (run_info.json records switches, git commit and source
-# hashes), logs to outputs/coin_<timestamp>_gpu<N>.log. A timestamp that already has results
-# is refused; to resume an interrupted run, rerun its line with --resume (an episode deferred
-# after exhausted API retries is also rerun by --resume). Do not edit PSG_Nav.py, utils/,
-# configs/ or graph/ between these runs. Each experiment runs even when an earlier one exits
-# with an error. Lines run one after another. About 4-5 h per run on two GPUs.
-#
-# Usage:
-#   export PSGNAV_PYTHON=/home/temp/.conda/envs/psgnav-instance/bin/python
-#   bash scripts/run_continuous_evaluation_coin.sh
-set -u
-cd "$(dirname "$0")/.."
-export PSGNAV_PYTHON="${PSGNAV_PYTHON:-/home/temp/.conda/envs/psgnav-instance/bin/python}"
 
-VLM=qwen3.5-flash
-E1=(--enable-instance-confirmation false --enable-candidate-approach true)
+bash scripts/run_coin_e0.sh \
+  --split val_seen \
+  --subset 100 \
+  --gpus 0,1 \
+  --nav-base psgnav \
+  --vlm qwen3.5-flash \
+  --instance-verification-prompt match_visible_evidence \
+  --timestamp coin_seen100_visible_evidence_local_r1
 
-# ---- This machine, two GPUs (0,1) -------------------------------------------------------
-# E0 on the 100 frozen episodes of the other two CoIN splits (configs/coin_<split>_subset100_seed77.json,
-# same selection rule and seed as val_unseen: val_seen all 86 targets + 14, val_seen_synonyms
-# all 36 targets + 64). With the val_unseen E0 runs these decide whether the main table reports
-# CoIN on val_unseen only or on all three splits (Context-Nav reports all three: 13.5 / 20.3 /
-# 11.3 SR). The second run of each split runs on the H20 (scripts/run_continuous_evaluation_coin_h20.sh).
-GPUS=0,1
+bash scripts/run_coin_e0.sh \
+  --split val_seen_synonyms \
+  --subset 100 \
+  --gpus 0,1 \
+  --nav-base psgnav \
+  --vlm qwen3.5-flash \
+  --instance-verification-prompt match_visible_evidence \
+  --timestamp coin_syn100_visible_evidence_local_r1
 
-# Done (2026-11-22), E0 on the seen splits (r2 on the H20):
-#bash scripts/run_coin_e0.sh --vlm "$VLM" --gpus 0,1 --split val_seen --timestamp coin_e0_val_seen_r1   # 15.0 / 4.52
-#bash scripts/run_coin_e0.sh --vlm "$VLM" --gpus 0,1 --split val_seen_synonyms --timestamp coin_e0_val_seen_synonyms_r1   # 20.0 / 11.42
-
-# Done (2026-11-20/22), val_unseen, one run each (SR / SPL):
-#bash scripts/run_coin_e0.sh --vlm "$VLM" --gpus 0,1 --timestamp coin_e0_strict_r1   # 14.0 / 4.03
-#bash scripts/run_coin_e2.sh --vlm "$VLM" --gpus 0,1 --timestamp coin_e2_strict_r1   # 14.0 / 4.36
-#bash scripts/run_coin_e2.sh --vlm "$VLM" --gpus 0,1 --instance-verification-prompt match_context_optional --timestamp coin_e2_ctx_r1   # 12.0 / 5.56
-#bash scripts/run_coin_e2.sh --vlm "$VLM" --gpus 0,1 --instance-verification-prompt match --timestamp coin_e2_match_r1   # 8.0 / 2.95
-#bash scripts/run_coin_e0.sh --vlm "$VLM" --gpus 0,1 --timestamp coin_e0_strict_r3   # 14.0 / 4.36
-#bash scripts/run_coin_e0.sh --vlm "$VLM" --gpus 0,1 --enable-candidate-approach true --timestamp coin_b_r1   # 13.0 / 3.65
-#bash scripts/run_coin_e0.sh --vlm "$VLM" --gpus 0,1 --instance-rejection-policy non_yes --timestamp coin_a0e4_r1   # 13.0 / 3.44
-#bash scripts/run_coin_e0.sh --vlm "$VLM" --gpu 0 "${E1[@]}" --timestamp coin_e1_r1   # H20: 1.0 / 0.65
+bash scripts/run_coin_e0.sh \
+  --split val_unseen \
+  --subset 100 \
+  --gpus 0,1 \
+  --nav-base psgnav \
+  --vlm qwen3.5-flash \
+  --instance-verification-prompt match_visible_evidence \
+  --timestamp coin_unseen100_visible_evidence_local_r1

@@ -16,16 +16,24 @@ from configs.navigation_config import (instance_verification_prompt, instance_ve
 from utils.model_client import ModelRequestError
 
 LOG = logging.getLogger(__name__)
-# INSTANCE_VERIFICATION_PROMPT selects the rule sentence; the "yes" wording is identical.
-# match is the original text, byte for byte, so its requests and cache keys are unchanged.
+# Keep the existing variants byte-identical for historical comparisons and cache keys.
+_CATEGORY_RULE = 'Matching the object category alone is not sufficient. '
+_STRICT_NO_RULE = (
+    'Answer "no" only if the visible evidence clearly contradicts the description, so that this '
+    'is definitely not the described object. If the object is partly hidden, too small or '
+    'unclear, if the described attributes or surrounding context are not visible in this view, '
+    'or if you cannot tell for any other reason, answer "unknown", not "no". ')
 POSITIVE_MATCH_RULES = {
-    'match': 'If evidence is inadequate, answer unknown. ',
-    'match_strict_no': (
-        'Answer "no" only if the visible evidence clearly contradicts the description, so that this '
-        'is definitely not the described object. If the object is partly hidden, too small or '
-        'unclear, if the described attributes or surrounding context are not visible in this view, '
-        'or if you cannot tell for any other reason, answer "unknown", not "no". '),
-    'match_context_optional': (
+    'match': _CATEGORY_RULE + 'If evidence is inadequate, answer unknown. ',
+    'match_strict_no': _CATEGORY_RULE + _STRICT_NO_RULE,
+    'match_visible_evidence': (
+        'Answer "yes" only when visible evidence from the description, such as an appearance detail or a spatial '
+        'relation, supports identifying the boxed object as the intended instance. Matching the category or '
+        'being the only boxed candidate is not sufficient. A single candidate can still be a match; no '
+        'comparison object is required. If another visible object, boxed or unboxed, fits the description '
+        'equally well and you cannot tell which one is intended, answer "unknown" for the ambiguous candidate. '
+    ) + _STRICT_NO_RULE,
+    'match_context_optional': _CATEGORY_RULE + (
         'Answer "yes" if the boxed object itself matches the described appearance (for a picture, '
         'what it shows) and nothing visible contradicts the description. Described surrounding '
         'objects or relations that are outside this view do not count against the object. '
@@ -210,7 +218,6 @@ def _verify_candidate_result(model_client, rgb, boxes, category, attributes, *, 
     else:
         judgment = (
             'For each box, decide whether its object matches the intrinsic attributes and visible surrounding context. '
-            'Matching the object category alone is not sufficient. '
             + POSITIVE_MATCH_RULES[instance_verification_prompt()]
         )
     prompt = (

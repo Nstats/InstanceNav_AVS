@@ -60,6 +60,8 @@ VARIANTS = {
     # M7 (paper Table C, which candidates are approached): none (A0) or only those the
     # VLM admits from where they are first seen (RA); B approaches every detection.
     'A0': {'ENABLE_CANDIDATE_APPROACH': 'false'},
+    'A0VisibleEvidence': {'ENABLE_CANDIDATE_APPROACH': 'false',
+                          'INSTANCE_VERIFICATION_PROMPT': 'match_visible_evidence'},
     'RA': {'VERIFY_BEFORE_CANDIDATE': 'true'},
     # A0 is the paper's main configuration (2026-11-19). These add one E-variant rule back
     # on top of A0 instead of B, so Table 4 can be read against the main configuration.
@@ -233,7 +235,7 @@ def main():
                           'command': cmd}, indent=2))
         return 0
     env = {**os.environ, **settings(args.experiment, args.vlm, args.nav_base), 'PSGNAV_PYTHON': sys.executable,
-           'INSTANCE_ABLATION_ID': args.experiment}
+           'NAV_BASE': args.nav_base, 'INSTANCE_ABLATION_ID': args.experiment}
     for legacy in ('ENABLE_CONTRADICTION_CHECK', 'ENABLE_INSTANCE_CONFIRMATION_BEFORE_FIND_GOAL'):
         env.pop(legacy, None)
     print('Experiment:', args.experiment, '\nCommand:', shlex.join(cmd), flush=True)
