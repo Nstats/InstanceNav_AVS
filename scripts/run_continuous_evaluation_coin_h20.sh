@@ -4,7 +4,7 @@
 
 # VLFM base on CoIN val_unseen (100 frozen episodes): VLFM + AVS (E0 / A0 configuration) and
 # original VLFM (E1: verification off). The InstanceNav pair runs on the local machine
-# (scripts/run_continuous_evaluation_coin.sh). Needs /data/lxj/vlfm with its data/ weights and
+# (scripts/run_continuous_evaluation_instancenav.sh). Needs /data/lxj/vlfm with its data/ weights and
 # data/vlfm/pointnav_weights_state_dict.pth (tools/export_vlfm_pointnav.py) on this machine.
 # Start the VLFM model servers once, before the two runs:
 bash scripts/launch_vlfm_servers.sh --gpu 0

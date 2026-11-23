@@ -11,9 +11,7 @@
 #       right on CoIN? (InstanceNav: approach -4.9.)
 #   E4  E0 + non-yes answers exclude the candidate for the episode (A0E4). The largest
 #       negative ablation on InstanceNav (-15.5); checks it on the second benchmark.
-#   VLFM base (--nav-base vlfm, separate table): how much AVS adds to a second base.
-#       VLFM+AVS = the A0 configuration; VLFM = E1 (verification off, original VLFM). The gain
-#       is the paired difference of the two runs. InstanceNav runs here; CoIN runs on the H20
+#   VLFM base (--nav-base vlfm): the CoIN pair runs on the H20
 #       (scripts/run_continuous_evaluation_coin_h20.sh).
 # One run per configuration when its paired difference with E0 is significant; reruns
 # (_r2, _r3) only where it is not. The full split is run by hand at the end.
@@ -43,15 +41,6 @@ E1=(--enable-instance-confirmation false --enable-candidate-approach true)
 # CoIN on val_unseen only or on all three splits (Context-Nav reports all three: 13.5 / 20.3 /
 # 11.3 SR). The second run of each split runs on the H20 (scripts/run_continuous_evaluation_coin_h20.sh).
 GPUS=0,1
-
-# VLFM base on InstanceNav (val10 100 tasks). The four VLFM model servers must listen first
-# (tmux session vlfm_servers; already running is fine, about 7 GB on GPU 1). The runs go
-# through run_instance_ablation.sh like the PSG-Nav ablations, in their own suite (the VLFM
-# settings differ from avs5_m7b_20261118).
-SUITE_VLFM=avs5_vlfm_20261123
-bash scripts/launch_vlfm_servers.sh --gpu 1
-bash scripts/run_instance_ablation.sh A0 --vlm "$VLM" --nav-base vlfm --suite "$SUITE_VLFM" --gpus "$GPUS" --timestamp vlfm_A0_r1
-bash scripts/run_instance_ablation.sh E1 --vlm "$VLM" --nav-base vlfm --suite "$SUITE_VLFM" --gpus "$GPUS" --timestamp vlfm_E1_r1
 
 # Done (2026-11-22), E0 on the seen splits (r2 on the H20):
 #bash scripts/run_coin_e0.sh --vlm "$VLM" --gpus 0,1 --split val_seen --timestamp coin_e0_val_seen_r1   # 15.0 / 4.52

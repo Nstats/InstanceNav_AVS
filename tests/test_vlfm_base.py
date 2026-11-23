@@ -226,11 +226,14 @@ def test_ablation_launcher_nav_base():
 
 
 def test_queue_scripts_parse_and_name_vlfm_runs():
-    # InstanceNav pair on the local machine, CoIN pair on the H20.
-    queues = {'run_continuous_evaluation_coin.sh': ('vlfm_A0_r1', 'vlfm_E1_r1'),
+    # Queue files are named by benchmark; _h20 runs on the H20 with GPU 0 only.
+    queues = {'run_continuous_evaluation_instancenav.sh': ('vlfm_A0_r1', 'vlfm_E1_r1'),
+              'run_continuous_evaluation_coin.sh': (),
               'run_continuous_evaluation_coin_h20.sh': ('coin_vlfm_avs_r1', 'coin_vlfm_r1')}
     for name, runs in queues.items():
         path = ROOT / 'scripts' / name
         assert subprocess.run(['bash', '-n', str(path)]).returncode == 0
         active = [line for line in path.read_text().splitlines() if 'vlfm' in line and not line.startswith('#')]
         assert sorted(line.split('--timestamp ')[1] for line in active if '--timestamp' in line) == sorted(runs)
+        if name.endswith('_h20.sh'):
+            assert all('--gpu 0' in line for line in active if '--timestamp' in line)
