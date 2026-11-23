@@ -193,3 +193,44 @@ def test_vlfm_policy_uses_official_settings_on_every_benchmark():
     from nav_bases.vlfm_agent import VLFM_POLICY_DEFAULTS
     assert (VLFM_POLICY_DEFAULTS['pointnav_stop_radius'], VLFM_POLICY_DEFAULTS['non_coco_threshold'],
             VLFM_POLICY_DEFAULTS['max_obstacle_height'], VLFM_POLICY_DEFAULTS['agent_radius']) == (0.9, 0.4, 0.88, 0.18)
+
+
+def test_detections_vlfm_discards_are_never_verified():
+    from nav_bases.vlfm_agent import vlfm_range_ids
+    # Mask at the image edge (too_offset): VLFM deletes the whole cloud, so no verification.
+    assert vlfm_range_ids(True, [1.2, 1.3], 5.0) is None
+    # No point within 95% of max depth: no lasting target either.
+    assert vlfm_range_ids(False, [4.9, 5.0], 5.0) is None
+    ids = vlfm_range_ids(False, [1.2, 4.9], 5.0)
+    assert ids[0] == 1 and 0 < ids[1] < 1
+
+
+def test_proposal_skips_what_vlfm_discards():
+    source = (ROOT / 'nav_bases/vlfm_agent.py').read_text()
+    body = source.split('def _proposal', 1)[1].split('return VLFMPolicy', 1)[0]
+    assert 'vlfm_range_ids(too_offset(mask), local_cloud[:, 0], max_depth)' in body
+    assert 'if within_range is None:\n                # VLFM keeps no point' in body
+
+
+def test_ablation_launcher_nav_base():
+    import sys
+    sys.path.insert(0, str(ROOT / 'tools'))
+    from run_instance_ablation import launch_command, settings
+    # PSG-Nav presets are unchanged: no NAV_BASE key, no --nav-base flag.
+    assert 'NAV_BASE' not in settings('A0') and '--nav-base' not in launch_command('A0', '0,1', 't')
+    assert settings('A0', nav_base='vlfm') == {**settings('A0'), 'NAV_BASE': 'vlfm'}
+    cmd = launch_command('E1', '0', 't', nav_base='vlfm')
+    assert cmd[cmd.index('--nav-base') + 1] == 'vlfm'
+    with pytest.raises(ValueError):
+        settings('B', nav_base='vlfm')
+
+
+def test_queue_scripts_parse_and_name_vlfm_runs():
+    # InstanceNav pair on the local machine, CoIN pair on the H20.
+    queues = {'run_continuous_evaluation_coin.sh': ('vlfm_A0_r1', 'vlfm_E1_r1'),
+              'run_continuous_evaluation_coin_h20.sh': ('coin_vlfm_avs_r1', 'coin_vlfm_r1')}
+    for name, runs in queues.items():
+        path = ROOT / 'scripts' / name
+        assert subprocess.run(['bash', '-n', str(path)]).returncode == 0
+        active = [line for line in path.read_text().splitlines() if 'vlfm' in line and not line.startswith('#')]
+        assert sorted(line.split('--timestamp ')[1] for line in active if '--timestamp' in line) == sorted(runs)

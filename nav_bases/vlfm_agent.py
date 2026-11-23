@@ -23,7 +23,8 @@ that text as its only class); the full CoIN instruction is used only by AVS.
 
 ENABLE_INSTANCE_CONFIRMATION=false runs VLFM unchanged (category detection decides the
 goal). true adds AVS (nav_bases/avs_decision.py): only a detection the VLM confirms
-from within 4 m may enter the target map. Exploration (value map prompt, frontiers) is
+from within 4 m may enter the target map. Only detections VLFM itself would keep as
+a target are verified (vlfm_range_ids): VLFM finds the category, AVS decides the instance. Exploration (value map prompt, frontiers) is
 VLFM's in both cases. Nothing here is imported by PSG_Nav.py.
 """
 import os
@@ -110,6 +111,26 @@ def normalise_depth(depth_m):
     depth = np.where(np.isfinite(depth), depth, VLFM_MIN_DEPTH_M)
     depth = np.clip(depth, VLFM_MIN_DEPTH_M, VLFM_MAX_DEPTH_M)
     return (depth - VLFM_MIN_DEPTH_M) / (VLFM_MAX_DEPTH_M - VLFM_MIN_DEPTH_M)
+
+
+def vlfm_range_ids(offset, forward_depth_m, max_depth):
+    """Per-point range ids as ObjectPointCloudMap.update_map assigns them, or None.
+
+    VLFM marks points within 95% of max_depth with id 1 and the rest of a detection
+    with one random id; a detection whose mask hugs the left or right image edge
+    (too_offset) gets the random id on every point. update_explored deletes every
+    non-1 id once its points fall inside the 2.5 m view cone, and the target cloud is
+    built from id-1 points whenever any exist. A detection with no id-1 point is
+    therefore never a lasting VLFM target, and None tells the caller to skip it
+    instead of sending it to the VLM.
+    """
+    if offset:
+        return None
+    ids = (np.asarray(forward_depth_m) <= max_depth * 0.95).astype(np.float32)
+    if not ids.any():
+        return None
+    ids[ids == 0] = np.random.rand()
+    return ids
 
 
 def validate_avs_settings():
@@ -246,11 +267,11 @@ def build_policy_class():
             local_cloud = object_map._extract_object_cloud(depth, mask, min_depth, max_depth, fx, fy)
             if len(local_cloud) == 0:
                 return Proposal(box, None, None)
-            if too_offset(mask):
-                within_range = np.ones_like(local_cloud[:, 0]) * np.random.rand()
-            else:
-                within_range = ((local_cloud[:, 0] <= max_depth * 0.95) * 1.0).astype(np.float32)
-                within_range[within_range == 0] = np.random.rand()
+            within_range = vlfm_range_ids(too_offset(mask), local_cloud[:, 0], max_depth)
+            if within_range is None:
+                # VLFM keeps no point of this detection as a target (see vlfm_range_ids),
+                # so it is never verified: AVS only decides on what VLFM would navigate to.
+                return Proposal(box, None, None)
             global_cloud = transform_points(tf_camera_to_episodic, local_cloud)
             global_cloud = np.concatenate((global_cloud, within_range[:, None]), axis=1)
             curr_position = tf_camera_to_episodic[:3, 3]

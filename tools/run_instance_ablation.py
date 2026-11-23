@@ -70,6 +70,11 @@ VARIANTS = {
 # Model behind every call (exploration and verification), as run_instance100.sh --vlm accepts it.
 # The default keeps the existing presets unchanged; another VLM is a separate comparison batch.
 VLMS = ('qwen3.5-flash', 'gemini-2.5-flash', 'qwen3-vl-8b-instruct')
+# Object-navigation base (run_instance100.sh --nav-base). psgnav adds nothing to the settings
+# or the command, so every PSG-Nav preset, manifest and resume stays as it was. The VLFM base
+# implements original VLFM (E1: verification off) and VLFM + AVS A0 only.
+NAV_BASES = ('psgnav', 'vlfm')
+VLFM_EXPERIMENTS = ('A0', 'E1')
 
 
 def common(vlm=COMMON['VLM']):
@@ -78,13 +83,19 @@ def common(vlm=COMMON['VLM']):
     return {**COMMON, 'VLM': vlm}
 
 
-def settings(experiment, vlm=COMMON['VLM']):
-    return {**common(vlm), **VARIANTS[experiment]}
+def settings(experiment, vlm=COMMON['VLM'], nav_base='psgnav'):
+    if nav_base not in NAV_BASES:
+        raise ValueError(f'nav base must be one of {", ".join(NAV_BASES)}')
+    if nav_base == 'psgnav':
+        return {**common(vlm), **VARIANTS[experiment]}
+    if experiment not in VLFM_EXPERIMENTS:
+        raise ValueError(f'nav base {nav_base} supports only {", ".join(VLFM_EXPERIMENTS)}')
+    return {**common(vlm), **VARIANTS[experiment], 'NAV_BASE': nav_base}
 
 
-def launch_command(experiment, gpus, timestamp=None, resume=False, vlm=COMMON['VLM']):
+def launch_command(experiment, gpus, timestamp=None, resume=False, vlm=COMMON['VLM'], nav_base='psgnav'):
     cmd = ['bash', str(ROOT / 'scripts/run_instance100.sh')]
-    for key, value in settings(experiment, vlm).items():
+    for key, value in settings(experiment, vlm, nav_base).items():
         cmd.extend(['--' + key.lower().replace('_', '-'), value])
     cmd.extend(['--gpus', gpus])
     if timestamp:
@@ -152,7 +163,8 @@ def archive_run(args, cmd, directory, inventory):
     python = str(Path(sys.executable).resolve())
     # What defines a run: the experiment, its settings and the algorithm core. GPUs, the
     # interpreter path and non-core files may differ between machines and resumes.
-    identity = {'experiment': args.experiment, 'settings': settings(args.experiment, args.vlm),
+    identity = {'experiment': args.experiment,
+                'settings': settings(args.experiment, args.vlm, getattr(args, 'nav_base', 'psgnav')),
                 'timestamp': args.timestamp}
     if args.resume:
         if not manifest_path.is_file():
@@ -200,6 +212,8 @@ def main():
     parser.add_argument('--resume', action='store_true')
     parser.add_argument('--vlm', default=COMMON['VLM'], choices=VLMS,
                         help='model for all calls; part of the run settings and the suite identity')
+    parser.add_argument('--nav-base', default='psgnav', choices=NAV_BASES,
+                        help='object-navigation base; vlfm runs A0 (VLFM + AVS) or E1 (original VLFM)')
     parser.add_argument('--check-only', action='store_true')
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
@@ -211,12 +225,14 @@ def main():
         parser.error('--gpus requires one or more distinct IDs, e.g. 0 or 0,1')
     if not args.timestamp and (args.resume or not (args.check_only or args.dry_run)):
         parser.error('--timestamp is required for evaluation/resume')
-    cmd = launch_command(args.experiment, args.gpus, args.timestamp, args.resume, args.vlm)
+    if args.nav_base != 'psgnav' and args.experiment not in VLFM_EXPERIMENTS:
+        parser.error(f'--nav-base {args.nav_base} supports only {", ".join(VLFM_EXPERIMENTS)}')
+    cmd = launch_command(args.experiment, args.gpus, args.timestamp, args.resume, args.vlm, args.nav_base)
     if args.dry_run:
-        print(json.dumps({'experiment': args.experiment, 'settings': settings(args.experiment, args.vlm),
+        print(json.dumps({'experiment': args.experiment, 'settings': settings(args.experiment, args.vlm, args.nav_base),
                           'command': cmd}, indent=2))
         return 0
-    env = {**os.environ, **settings(args.experiment, args.vlm), 'PSGNAV_PYTHON': sys.executable,
+    env = {**os.environ, **settings(args.experiment, args.vlm, args.nav_base), 'PSGNAV_PYTHON': sys.executable,
            'INSTANCE_ABLATION_ID': args.experiment}
     for legacy in ('ENABLE_CONTRADICTION_CHECK', 'ENABLE_INSTANCE_CONFIRMATION_BEFORE_FIND_GOAL'):
         env.pop(legacy, None)
