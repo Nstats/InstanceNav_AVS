@@ -237,3 +237,14 @@ def test_queue_scripts_parse_and_name_vlfm_runs():
         assert sorted(line.split('--timestamp ')[1] for line in active if '--timestamp' in line) == sorted(runs)
         if name.endswith('_h20.sh'):
             assert all('--gpu 0' in line for line in active if '--timestamp' in line)
+
+
+def test_local_vlfm_servers_bypass_the_proxy():
+    from nav_bases.vlfm_agent import bypass_proxy_for_local_servers
+    env = {'HTTP_PROXY': 'http://127.0.0.1:9981', 'no_proxy': 'example.org'}
+    bypass_proxy_for_local_servers(env)
+    assert env['NO_PROXY'] == 'localhost,127.0.0.1,::1'
+    assert env['no_proxy'] == 'example.org,localhost,127.0.0.1,::1'
+    assert env['HTTP_PROXY'] == 'http://127.0.0.1:9981'  # remote traffic keeps its proxy
+    bypass_proxy_for_local_servers(env)
+    assert env['no_proxy'] == 'example.org,localhost,127.0.0.1,::1'  # idempotent

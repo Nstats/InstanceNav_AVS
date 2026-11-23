@@ -59,6 +59,23 @@ SERVER_PORTS = {'GROUNDING_DINO_PORT': 12181, 'BLIP2ITM_PORT': 12182, 'SAM_PORT'
                 'YOLOV7_PORT': 12184}
 
 
+LOCAL_HOSTS = ('localhost', '127.0.0.1', '::1')
+
+
+def bypass_proxy_for_local_servers(environ=os.environ):
+    """Keep requests to the local VLFM model servers off any HTTP(S)/SOCKS proxy.
+
+    VLFM's clients use requests with the process environment. A shell that exports
+    HTTP_PROXY/ALL_PROXY without NO_PROXY sends every localhost request to the proxy,
+    which never answers, so the agent hangs in VLFM's 10 x 20 s retry loop. Only the
+    local hosts are added; remote traffic (the VLM API) keeps the configured proxy.
+    """
+    for key in ('NO_PROXY', 'no_proxy'):
+        entries = [e.strip() for e in environ.get(key, '').split(',') if e.strip()]
+        entries += [host for host in LOCAL_HOSTS if host not in entries]
+        environ[key] = ','.join(entries)
+
+
 def import_vlfm():
     """Make the official VLFM package importable next to habitat-lab 0.2.1.
 
@@ -327,6 +344,7 @@ class VLFMNavAgent:
 
         if not POINTNAV_WEIGHTS.is_file():
             raise FileNotFoundError(f'{POINTNAV_WEIGHTS} missing; run tools/export_vlfm_pointnav.py')
+        bypass_proxy_for_local_servers()
         check_servers()
         policy_cls = build_policy_class()
         # The official policy values on every benchmark: on InstanceNav (0.88 m, 0.18 m
