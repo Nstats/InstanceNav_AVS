@@ -2,6 +2,11 @@
 # environment, one terminal per line; lines under one heading run in parallel on GPU 0. To
 # resume an interrupted run, rerun its line with --resume.
 
+# CoIN x PSG-Nav E1 (category-count stop, no instance verification), 100 frozen episodes per split.
+# Copy one command per terminal. These two runs do not need the VLFM servers.
+bash scripts/run_coin_e0.sh --vlm qwen3.5-flash --gpu 0 --nav-base psgnav --enable-instance-confirmation false --enable-candidate-approach true --split val_seen --timestamp coin_e1_val_seen_r1
+bash scripts/run_coin_e0.sh --vlm qwen3.5-flash --gpu 0 --nav-base psgnav --enable-instance-confirmation false --enable-candidate-approach true --split val_seen_synonyms --timestamp coin_e1_val_seen_synonyms_r1
+
 # VLFM base on CoIN val_unseen (100 frozen episodes): VLFM + AVS (E0 / A0 configuration) and
 # original VLFM (E1: verification off). The InstanceNav pair runs on the local machine
 # (scripts/run_continuous_evaluation_instancenav.sh). Needs /data/lxj/vlfm with its data/ weights and
