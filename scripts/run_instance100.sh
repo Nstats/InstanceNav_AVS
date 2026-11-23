@@ -531,6 +531,9 @@ export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export NLTK_DATA="$PWD/data/nltk_data${NLTK_DATA:+:$NLTK_DATA}"
 export PYTHONPATH="$PWD/habitat-lab:$PWD:$PWD/GLIP${PYTHONPATH:+:$PYTHONPATH}"
+if [[ "$NAV_BASE" == vlfm ]]; then
+  "$psgnav_python" -m nav_bases.vlfm_runtime check --group navigation
+fi
 
 if (( check_only )); then
   "$psgnav_python" tools/preflight_instancenav.py --config configs/runtime/instancenav_unseen10_1000atomic_1m.yaml

@@ -3,6 +3,7 @@
 /outputs/
 /logs/
 /evaluation_results/
+/lockfiles/
 /episode_*/
 /results*/
 /checkpoints/

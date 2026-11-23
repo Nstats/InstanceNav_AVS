@@ -107,7 +107,7 @@ def launch_command(experiment, gpus, timestamp=None, resume=False, vlm=COMMON['V
     return cmd
 
 
-def source_inventory():
+def source_inventory(nav_base='psgnav'):
     """Archive application code/config, not credentials, datasets or model weights."""
     names = subprocess.check_output(
         ['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'], cwd=ROOT
@@ -117,7 +117,11 @@ def source_inventory():
         p = Path(name)
         if name in FINGERPRINT_EXCLUDE:
             continue
-        if ((len(p.parts) == 1 and p.suffix in {'.py', '.yml', '.yaml'}) or
+        vlfm_source = (nav_base == 'vlfm' and
+                       (p.parts[0] == 'nav_bases' or p.parts[:2] == ('third_party', 'vlfm')) and
+                       (p.suffix in {'.py', '.md', '.txt', '.json', '.sha256'} or
+                        p.name.startswith('LICENSE') or p.name == 'SOURCES'))
+        if (vlfm_source or (len(p.parts) == 1 and p.suffix in {'.py', '.yml', '.yaml'}) or
                 (p.parts[0] in {'utils', 'configs', 'graph', 'scripts', 'tools'}
                  and p.suffix in {'.py', '.sh', '.json', '.yaml', '.yml'})):
             if (ROOT / p).is_file():
@@ -243,7 +247,7 @@ def main():
     if result.returncode or args.check_only:
         return result.returncode
     directory = ROOT / 'outputs/instance_ablation_runs' / args.suite / args.timestamp
-    manifest = archive_run(args, cmd, directory, source_inventory())
+    manifest = archive_run(args, cmd, directory, source_inventory(args.nav_base))
     env['INSTANCE_ABLATION_MANIFEST'] = str(manifest)
     print('Manifest:', manifest, flush=True)
     os.chdir(ROOT)

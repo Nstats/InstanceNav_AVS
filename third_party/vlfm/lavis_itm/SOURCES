@@ -1,0 +1,45 @@
+This is an inference-only adaptation of salesforce-lavis 1.0.2 (BSD-3-Clause),
+https://github.com/salesforce/LAVIS. Upstream files in that distribution:
+
+  lavis/configs/models/blip2/blip2_pretrain.yaml
+  lavis/processors/blip_processors.py                             eval only
+  lavis/models/blip2_models/blip2_image_text_matching.py          ITC branch
+  lavis/models/blip2_models/blip2.py and blip2_qformer.py         model init
+  lavis/models/blip2_models/Qformer.py                            query/text encoders
+  lavis/models/eva_vit.py                                         EVA ViT-g/14
+
+The cosine API and image handling follow vlfm/vlm/blip2itm.py in VLFM (MIT),
+https://github.com/bdaiinstitute/vlfm/tree/584ed56008754fde7997d904983607def8328322.
+The LAVIS and VLFM license texts are in LICENSE. No weights are included.
+
+Changes: retain only the fixed 224px eval transform, caption processor,
+39 EVA blocks and the two unimodal Q-Former passes. No registry, distributed
+training, generation, ITM logits, HTTP client/server, or Hub model lookup.
+The Q-Former preserves LAVIS's query-specific FFNs, alternate cross-attention
+layers, and absence of token-type embeddings. Its upstream implementation by
+Junnan Li credits Hugging Face Transformers v4.15.0:
+https://github.com/huggingface/transformers/tree/v4.15.0/src/transformers/models/bert.
+Here the common BERT operations and timm's PatchEmbed/Mlp are imported from
+the pinned environment, not redistributed. Upstream EVA implementation credits:
+https://github.com/baaivision/EVA
+https://github.com/rwightman/pytorch-image-models/tree/master/timm
+https://github.com/microsoft/unilm/tree/master/beit
+https://github.com/facebookresearch/deit/
+https://github.com/facebookresearch/dino
+
+Runtime imports (verified environment): Python 3.9, torch 2.7.0, torchvision
+0.22.0, timm 0.4.12, transformers 4.26.0, NumPy 1.26.4 and Pillow 9.5.0.
+
+Provide original trusted files with these paths relative to asset_dir:
+  blip2_pretrained.pth                 LAVIS BLIP2 first-stage pretrain
+  eva_vit_g.pth                        LAVIS EVA-CLIP ViT-g visual weights
+  bert-base-uncased/config.json         original BERT uncased base config
+  bert-base-uncased/vocab.txt           original WordPiece vocabulary
+  bert-base-uncased/pytorch_model.bin   original BERT uncased base weights
+  bert-base-uncased/tokenizer_config.json  optional original tokenizer metadata
+
+Both LAVIS checkpoints come from the LAVIS models/BLIP2 release referenced in
+blip2_pretrain.yaml and eva_vit.py. The BERT files are from bert-base-uncased.
+The BLIP2 checkpoint omits the frozen visual encoder: it is not sufficient by
+itself. Asset files are read locally, with weights_only=True for all three
+weight files; there is no fallback to a cache, online repository or unrestricted pickle loader.

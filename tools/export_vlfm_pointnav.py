@@ -5,7 +5,10 @@ The official data/pointnav_weights.pth pickles a habitat-lab 0.2.4 OmegaConf con
 so unpickling it needs habitat 0.2.4. The navigation process runs the bundled
 habitat-lab 0.2.1, so this tool runs once with VLFM's vendored dependencies:
 
-    PYTHONPATH=/data/lxj/vlfm/.vlfm-deps:/data/lxj/vlfm python tools/export_vlfm_pointnav.py
+    python tools/export_vlfm_pointnav.py --source /path/to/trusted/upstream/pointnav_weights.pth
+
+This optional conversion needs the original Habitat-Lab 0.2.4 export environment.
+For evaluation copy the already exported state_dict to data/vlfm/ instead.
 
 It writes only tensors (loadable with weights_only=True) plus a JSON note with both
 SHA-256 digests. With --check it also compares the exported network
@@ -20,7 +23,7 @@ from pathlib import Path
 import torch
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SOURCE = Path('/data/lxj/vlfm/data/pointnav_weights.pth')
+DEFAULT_SOURCE = ROOT / 'data/vlfm/pointnav_weights.pth'  # only for optional one-time export
 DEFAULT_TARGET = ROOT / 'data/vlfm/pointnav_weights_state_dict.pth'
 
 
@@ -47,6 +50,8 @@ def check(ckpt, target, trials=20):
     from habitat_baselines.rl.ddppo.policy import PointNavResNetPolicy
     import sys
     sys.path.insert(0, str(ROOT))
+    from nav_bases.vlfm_runtime import activate
+    activate()
     from nav_bases.vlfm_pointnav import load_discrete_pointnav_policy
 
     obs_space = spaces.Dict({

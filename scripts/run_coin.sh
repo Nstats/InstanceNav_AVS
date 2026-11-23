@@ -307,6 +307,10 @@ export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 export NLTK_DATA="$PWD/data/nltk_data${NLTK_DATA:+:$NLTK_DATA}"
 export PYTHONPATH="$PWD/habitat-lab:$PWD:$PWD/GLIP${PYTHONPATH:+:$PYTHONPATH}"
 
+if [[ "$NAV_BASE" == vlfm ]]; then
+  "$psgnav_python" -m nav_bases.vlfm_runtime check --group navigation
+fi
+
 switch_summary() {
   local name
   for name in LANDMARK_COMPARISON_REPEATS LANDMARK_COMPARISON_WORKERS ENABLE_INSTANCE_DESCRIPTION_FOR_EXPLORATION \
@@ -421,8 +425,10 @@ sources = ['PSG_Nav.py', 'utils/object_detection.py', 'utils/collection_recorder
 if info['nav_base'] == 'vlfm':
     sources += ['VLFM_Nav.py', 'nav_bases/vlfm_agent.py', 'nav_bases/avs_decision.py',
                 'nav_bases/vlfm_pointnav.py', 'utils/coin_geometry.py']
-    info['vlfm_commit'] = subprocess.run(['git', '-C', os.environ.get('VLFM_ROOT', '/data/lxj/vlfm'), 'rev-parse',
-                                          'HEAD'], capture_output=True, text=True).stdout.strip() or None
+    from nav_bases.vlfm_runtime import UPSTREAM_REVISION
+    info['vlfm_commit'] = UPSTREAM_REVISION  # upstream base, not a sibling working tree
+    sources += ['nav_bases/vlfm_runtime.py', 'nav_bases/vlfm_server.py', 'nav_bases/vlfm_depth.py']
+    sources += sorted(str(p) for p in Path('third_party/vlfm').rglob('*.py'))
 info['source_sha256'] = {p: hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in sources}
 with open(sys.argv[1], 'w') as stream:
     json.dump(info, stream, indent=2)

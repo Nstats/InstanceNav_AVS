@@ -1,6 +1,6 @@
 """VLFM (Yokoyama et al., ICRA 2024) as an object-navigation base, with optional AVS.
 
-The official VLFM code (``VLFM_ROOT``, default /data/lxj/vlfm) supplies the policy:
+The official VLFM code bundled under third_party/vlfm supplies the policy:
 ITMPolicyV2 (BLIP-2 value map + frontier choice), YOLOv7 / GroundingDINO detection,
 MobileSAM masks, the object point-cloud map and the PointNav controller. Only the
 habitat glue is replaced, because this repository runs the bundled habitat-lab 0.2.1:
@@ -28,18 +28,16 @@ a target are verified (vlfm_range_ids): VLFM finds the category, AVS decides the
 VLFM's in both cases. Nothing here is imported by PSG_Nav.py.
 """
 import os
-import socket
 import sys
 from pathlib import Path
 
 import numpy as np
 import torch
 
-ROOT = Path(__file__).resolve().parents[1]
-VLFM_ROOT = Path(os.environ.get('VLFM_ROOT', '/data/lxj/vlfm'))
-VLFM_DEPS = Path(os.environ.get('VLFM_DEPS', str(VLFM_ROOT / '.vlfm-deps')))
-POINTNAV_WEIGHTS = Path(os.environ.get('VLFM_POINTNAV_WEIGHTS',
-                                       str(ROOT / 'data/vlfm/pointnav_weights_state_dict.pth')))
+from nav_bases import vlfm_runtime as runtime
+
+ROOT = runtime.ROOT
+POINTNAV_WEIGHTS = runtime.asset_path(runtime.POINTNAV)
 # Official VLFM HM3D sensor range (config/experiments/vlfm_objectnav_hm3d.yaml via
 # habitat objectnav_hm3d): the policy and its maps were built for normalised 0.5-5 m.
 VLFM_MIN_DEPTH_M = 0.5
@@ -55,8 +53,6 @@ VLFM_POLICY_DEFAULTS = dict(
 # InstanceNav (HM3D) goal names -> VLFM's HM3D_ID_TO_NAME detector classes.
 INSTANCENAV_TO_VLFM = {'chair': 'chair', 'bed': 'bed', 'plant': 'potted plant', 'toilet': 'toilet',
                        'tv_monitor': 'tv', 'sofa': 'couch'}
-SERVER_PORTS = {'GROUNDING_DINO_PORT': 12181, 'BLIP2ITM_PORT': 12182, 'SAM_PORT': 12183,
-                'YOLOV7_PORT': 12184}
 
 
 LOCAL_HOSTS = ('localhost', '127.0.0.1', '::1')
@@ -79,17 +75,14 @@ def bypass_proxy_for_local_servers(environ=os.environ):
 def import_vlfm():
     """Make the official VLFM package importable next to habitat-lab 0.2.1.
 
-    VLFM and its vendored dependencies are appended after this repository's paths, so
-    habitat (0.2.1) and every package already in the environment win. habitat_baselines
-    is blocked: VLFM then uses its own non-habitat PointNav code path.
+    The bundle contains no Habitat package. The host retains its Habitat-Lab
+    0.2.1 and the adapter uses VLFM's non-habitat discrete PointNav path.
     """
+    runtime.activate()
     if 'habitat_baselines' not in sys.modules:
         sys.modules['habitat_baselines'] = None
-    for path in (str(VLFM_ROOT), str(VLFM_DEPS)):
-        if path not in sys.path:
-            sys.path.append(path)
     import habitat
-    if not habitat.__file__.startswith(str(ROOT)):
+    if not Path(habitat.__file__).resolve().is_relative_to(ROOT / 'habitat-lab'):
         raise RuntimeError(f'habitat must come from this repository, got {habitat.__file__}')
     import vlfm.policy.utils.pointnav_policy as pointnav_policy
     from nav_bases.vlfm_pointnav import load_discrete_pointnav_policy
@@ -100,13 +93,8 @@ def import_vlfm():
 
 
 def check_servers():
-    missing = []
-    for name, default in SERVER_PORTS.items():
-        port = int(os.environ.get(name, default))
-        with socket.socket() as probe:
-            probe.settimeout(2)
-            if probe.connect_ex(('localhost', port)) != 0:
-                missing.append(f'{name}={port}')
+    from tools.vlfm_servers import configured_ports, probe
+    missing = [f'{name}={port}' for name, port in configured_ports().items() if not probe(name, port)]
     if missing:
         raise RuntimeError('VLFM model servers are not listening (' + ', '.join(missing)
                            + '); start them with scripts/launch_vlfm_servers.sh')
@@ -180,7 +168,7 @@ def validate_avs_settings():
 def build_policy_class():
     """ITMPolicyV2 with VLFM's HabitatMixin behaviour, for numpy observations."""
     ITMPolicyV2 = import_vlfm()
-    from depth_camera_filtering import filter_depth
+    from nav_bases.vlfm_depth import fill_normalized_depth
     from vlfm.mapping.object_point_cloud_map import too_offset
     from vlfm.utils.geometry_utils import get_fov, transform_points, xyz_yaw_to_tf_matrix
 
@@ -221,7 +209,7 @@ def build_policy_class():
             nav_depth = normalise_depth(observations['depth'])
             x, y = observations['gps']
             camera_yaw = float(np.asarray(observations['compass']).reshape(-1)[0])
-            depth = filter_depth(nav_depth.copy(), blur_type=None)
+            depth = fill_normalized_depth(nav_depth)
             # Habitat GPS makes west negative, so flip y
             camera_position = np.array([x, -y, self._camera_height])
             robot_xy = camera_position[:2]
@@ -337,13 +325,12 @@ class VLFMNavAgent:
                    'ENABLE_CANDIDATE_APPROACH', 'INSTANCE_VERIFICATION_RECORD_INPUTS',
                    'INSTANCE_ABLATION_ID', 'INSTANCE_ABLATION_MANIFEST', 'NAV_BASE']
         log_event('Run Header', code_version=code_version(), nav_base=self.nav_base,
-                  vlfm_root=str(VLFM_ROOT), pointnav_weights=str(POINTNAV_WEIGHTS),
+                  vlfm_root=str(runtime.SOURCE), pointnav_weights=str(POINTNAV_WEIGHTS),
                   avs=self.avs_settings, max_episode_steps=self.max_episode_steps,
                   habitat_config=config_summary(task_config),
                   toggles={name: os.environ[name] for name in toggles if name in os.environ})
 
-        if not POINTNAV_WEIGHTS.is_file():
-            raise FileNotFoundError(f'{POINTNAV_WEIGHTS} missing; run tools/export_vlfm_pointnav.py')
+        runtime.check_assets(['navigation'])
         bypass_proxy_for_local_servers()
         check_servers()
         policy_cls = build_policy_class()

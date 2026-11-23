@@ -40,6 +40,8 @@ AVS 的当前主配置使用整体描述核验，不进行属性因子分解、�
 
 部署步骤与本地资源约定见 [部署说明](DEPLOYMENT_ZH.md)，依赖记录见 [environment.yml](environment.yml) 和 [运行依赖清单](reproduction/requirements-runtime.txt)。当前环境记录包含 Python 3.9、Habitat-Sim 0.2.4、PyTorch、PyTorch3D 及感知模型依赖；PyTorch/CUDA 组合需适配本机驱动。
 
+默认仍走 PSG-Nav。仅当选择 `--nav-base vlfm` 时才使用仓库内的 VLFM 代码和独立的模型服务；权重不进 Git。H20 的权重目录、预检和启动命令见 [VLFM 部署说明](docs/VLFM_H20.md)。
+
 运行前准备以下资源：
 
 - **场景与数据集：** HM3D 场景放在 `data/scene_datasets/`；InstanceNav 子集放在 `data/datasets/instancenav/val10/`。评测配置及复现清单位于 [configs/runtime](configs/runtime)。
