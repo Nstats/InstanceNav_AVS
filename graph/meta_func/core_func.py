@@ -5,6 +5,7 @@ from collections import Counter
 import math
 from sklearn.cluster import DBSCAN
 
+from ..caption_combinations import scored_captions
 from ..node_class import ObjectNode, GroupNode, RoomNode
 from ..edge_class import Edge
 
@@ -521,7 +522,7 @@ class CoreFunc():
                 print(f"   ⚠️  Mismatch: {len(room_node.nodes) - total_in_groups} nodes not in any group")
             print()
 
-    def enumerate_group_node(self, group_node, min_prob_threshold=0.05):
+    def enumerate_group_node(self, group_node, min_prob_threshold=0.05, *, top_k=None):
         """
         Enumerate all possible caption combinations for a single GroupNode.
 
@@ -533,7 +534,8 @@ class CoreFunc():
         Args:
             group_node: The GroupNode to enumerate, containing multiple ObjectNodes
             min_prob_threshold: Minimum probability threshold. Object captions with
-                               probability < threshold will be ignored. Default: 0.1
+                               probability < threshold will be ignored. Default: 0.05
+            top_k: Return the same prefix as exhaustive enumeration followed by [:top_k].
 
         Returns:
             List of GroupNode instances, each with a different caption combination
@@ -555,7 +557,7 @@ class CoreFunc():
                 4. GroupNode([sofa, chair], prob=0.15*0.4=0.06)
         """
         if len(group_node.nodes) == 0:
-            return [group_node]
+            return [group_node][:top_k]
 
         # Extract caption distributions for each ObjectNode in the group
         all_captions = []  # List of caption lists, one per ObjectNode
@@ -614,18 +616,9 @@ class CoreFunc():
                 all_captions.append([node.caption])
                 all_probs.append([1.0])
 
-        # Generate all combinations of captions across ObjectNodes
-        caption_combinations = list(product(*all_captions))
-        prob_combinations = list(product(*all_probs))
-
-        # Create a GroupNode for each combination
+        # Keep object copying and graph construction identical for retained captions.
         enumerated_groups = []
-        for caption_combo, prob_combo in zip(caption_combinations, prob_combinations):
-            # Calculate combined probability (product of individual probabilities)
-            combined_prob = 1.0
-            for p in prob_combo:
-                combined_prob *= p
-
+        for caption_combo, combined_prob in scored_captions(all_captions, all_probs, top_k):
             # Skip combinations with very low combined probability
             if combined_prob < min_prob_threshold:
                 continue
@@ -649,7 +642,7 @@ class CoreFunc():
         # Sort by probability (descending order)
         enumerated_groups.sort(key=lambda g: g.probability, reverse=True)
 
-        return enumerated_groups
+        return enumerated_groups if top_k is None else enumerated_groups[:top_k]
 
     def enumerate_all_group_nodes(self, room_node, top_k_per_group=None, min_prob_threshold=0.1):
         """

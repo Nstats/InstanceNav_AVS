@@ -10,7 +10,8 @@ other's yaml; PSG_Nav then writes a private per-process copy of it to
 
 --pool draws the subset only from the episodes of a frozen pool file, such as
 configs/coin_val_unseen_subset100_seed77.json (tracked): count = pool size
-gives exactly the pool. Pool-based stems carry the pool size
+uses the pool file directly as the runtime manifest, without selection or copying.
+Smaller pool-based subsets carry the pool size in their stems
 (coin_contextnav_val_unseen_pool100_n10_seed77), so they never overwrite a
 subset of the whole split. --write-pool writes such a pool file from the whole
 split with select().
@@ -133,22 +134,29 @@ def write_subset(split, count, seed, config_path=DEFAULT_CONFIG, out_dir=OUT_DIR
         pool, pool_keys = load_pool(pool_path)
         if pool['split'] != split:
             raise ValueError(f'CoIN pool {pool_path} is for split {pool["split"]}, not {split}')
-    episodes = load_episodes(config_path, split)
-    if pool_keys is None:
-        keys, source_count, pool_tag = select(episodes, count, seed), len(episodes), ''
-    else:
-        keys = select_from_pool(episodes, pool_keys, count, seed)
-        source_count, pool_tag = len(pool_keys), f'_pool{len(pool_keys)}'
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    stem = f'{Path(config_path).stem}_{split}{pool_tag}_n{count}_seed{seed}'
-    manifest_path = out_dir / f'{stem}.manifest.json'
-    manifest = {'split': split, 'seed': seed, 'selected_count': len(keys), 'source_count': source_count,
-                'source_config': str(config_path)}
-    if pool_path:
-        manifest['pool'] = str(pool_path)
-    manifest['episode_keys'] = keys
-    manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
+    if pool_keys is not None and count == len(pool_keys):
+        # The tracked pool IS a Habitat subset manifest. Do not draw episodes or
+        # write a second manifest: every worker should read the versioned IDs.
+        manifest_path = Path(pool_path)
+        keys = pool['episode_keys']
+        stem = f'{Path(config_path).stem}_{manifest_path.stem}_fixed'
+    else:
+        episodes = load_episodes(config_path, split)
+        if pool_keys is None:
+            keys, source_count, pool_tag = select(episodes, count, seed), len(episodes), ''
+        else:
+            keys = select_from_pool(episodes, pool_keys, count, seed)
+            source_count, pool_tag = len(pool_keys), f'_pool{len(pool_keys)}'
+        stem = f'{Path(config_path).stem}_{split}{pool_tag}_n{count}_seed{seed}'
+        manifest_path = out_dir / f'{stem}.manifest.json'
+        manifest = {'split': split, 'seed': seed, 'selected_count': len(keys), 'source_count': source_count,
+                    'source_config': str(config_path)}
+        if pool_path:
+            manifest['pool'] = str(pool_path)
+        manifest['episode_keys'] = keys
+        manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
     lines, in_dataset = [], False
     for line in Path(config_path).read_text().splitlines():
         stripped = line.strip()

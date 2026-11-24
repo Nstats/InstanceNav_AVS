@@ -88,6 +88,19 @@ def test_write_subset_from_pool(tmp_path, monkeypatch):
     assert 'pool' not in json.loads(whole.read_text())
 
 
+def test_full_pool_uses_tracked_manifest_without_sampling(tmp_path, monkeypatch):
+    monkeypatch.chdir(ROOT)
+    monkeypatch.setattr(cs, 'load_episodes', lambda *a: pytest.fail('must not rebuild the pool'))
+    monkeypatch.setattr(cs, 'select', lambda *a: pytest.fail('must not draw any episodes'))
+    pool = Path(POOL)
+    frozen = pool.read_bytes()
+    for seed in (77, 999):
+        manifest, config, keys = cs.write_subset('val_unseen', 100, seed, CONFIG, tmp_path, POOL)
+        assert manifest == pool and keys == json.loads(frozen)['episode_keys']
+        assert f'  SUBSET_MANIFEST: {POOL}\n' in config.read_text()
+    assert pool.read_bytes() == frozen and list(tmp_path.iterdir()) == [config]
+
+
 def test_write_pool_round_trips(tmp_path, monkeypatch):
     episodes = _episodes()
     monkeypatch.setattr(cs, 'load_episodes', lambda config_path, split: episodes)

@@ -89,9 +89,9 @@ Runs with no options: the 100 frozen val_unseen episodes on GPUs 0,1
 (${val_unseen_pool}: all 47 targets, then 53 more episodes, seed 77).
 
   --split S          val_seen | val_seen_synonyms | val_unseen (default: val_unseen)
-  --subset N         Seeded subset of N episodes (tools/coin_subset.py), distinct targets
-                     first (default: 100; 0 runs the whole split). The N episodes come from
-                     the split's 100 frozen ones (N <= 100; 100 = all of them):
+  --subset N         100 (default): read the tracked manifest directly; no sampling.
+                     1..99: draw a smaller subset of the frozen episodes, distinct targets
+                     first. 0: run the whole split. Tracked manifests:
                      ${val_unseen_pool}, ${val_seen_pool},
                      ${val_seen_synonyms_pool}.
   --full             Run the whole split (same as --subset 0; val_unseen 459, val_seen 831,
@@ -333,8 +333,8 @@ fi
 
 # Workers receive the launcher's config; only the launcher writes a subset.
 if [[ -n "$subset" && -z "$worker_gpu" ]]; then
-  subset_args=(--split "$split" --count "$subset" --seed "$seed")
-  if [[ -n "$subset_pool" ]]; then subset_args+=(--pool "$subset_pool"); fi
+  subset_args=(--split "$split" --count "$subset" --pool "$subset_pool")
+  if [[ "$subset" != 100 ]]; then subset_args+=(--seed "$seed"); fi
   subset_out="$("$psgnav_python" tools/coin_subset.py "${subset_args[@]}" 2>&1)" \
     || { echo "Subset generation failed: $(tail -n 5 <<<"$subset_out")" >&2; exit 1; }
   config="$(sed -n 's/^Config: //p' <<<"$subset_out")"
@@ -411,8 +411,15 @@ info['collection_schema_version'] = 2 if info['evaluation_kind'] == 'collection'
 info['config_text'] = Path(info['config']).read_text()
 from configs.dataset_categories import coin_policy_categories
 import yaml
+runtime_config = yaml.safe_load(info['config_text'])
+manifest = runtime_config['DATASET'].get('SUBSET_MANIFEST')
+if manifest:
+    info['subset_manifest'] = manifest
+    info['subset_manifest_sha256'] = hashlib.sha256(Path(manifest).read_bytes()).hexdigest()
+    if manifest == info['pool']:
+        info['seed'] = None  # frozen episode IDs; no runtime sampling seed
 info['policy_categories'] = coin_policy_categories()
-task_config = yaml.safe_load(info['config_text'])['TASK']
+task_config = runtime_config['TASK']
 info['stop_rule'] = {'metric': task_config['STOP_DISTANCE_METRIC'],
                      'distance_m': task_config['STOP_DISTANCE']}
 sources = ['PSG_Nav.py', 'utils/object_detection.py', 'utils/collection_recorder.py',

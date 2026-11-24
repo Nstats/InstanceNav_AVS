@@ -12,6 +12,7 @@ import argparse
 import copy
 import math
 import os
+from functools import partial
 from pathlib import Path
 import numpy as np
 import skimage
@@ -1282,9 +1283,8 @@ class PSG_Nav_Agent():
         enumerated_groups = EnumeratedGroupNodes()
         enumerated_groups.add_from_rooms(
             room_nodes,
-            enumerate_func=self.scenegraph.enumerate_group_node,
-            top_k_per_group=3,
-            min_prob_threshold = 0.0
+            enumerate_func=partial(self.scenegraph.enumerate_group_node, top_k=3),
+            min_prob_threshold=0.0,
         )
 
         if group_llm_filter_enabled() or room_llm_filter_enabled():
