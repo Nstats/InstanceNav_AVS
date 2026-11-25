@@ -27,6 +27,11 @@ def host_model(model: Any, name: str, port: int = 5000) -> None:
     """
     app = Flask(__name__)
 
+    @app.after_request
+    def identify_process(response):
+        response.headers['X-VLFM-Pid'] = str(os.getpid())
+        return response
+
     @app.route(f"/{name}", methods=["POST"])
     def process_request() -> Dict[str, Any]:
         payload = request.json

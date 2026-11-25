@@ -3,7 +3,11 @@
 set +e
 cd "$(dirname "$0")/.." || exit 1
 
-bash scripts/launch_vlfm_servers.sh --gpu 0 || exit $?
+export GROUNDING_DINO_PORT="${GROUNDING_DINO_PORT:-22181}"
+export BLIP2ITM_PORT="${BLIP2ITM_PORT:-22182}"
+export SAM_PORT="${SAM_PORT:-22183}"
+export YOLOV7_PORT="${YOLOV7_PORT:-22184}"
+bash scripts/launch_vlfm_servers.sh --gpu 0 --session instancenav_h20 || exit $?
 
 # RA 第二轮：与本机 RA 第一轮配置相同；先预筛，近处再独立确认一次。
 bash scripts/run_instance_ablation.sh RA \

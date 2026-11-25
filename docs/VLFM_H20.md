@@ -48,10 +48,16 @@ bash scripts/launch_vlfm_servers.sh --check-only
 bash scripts/launch_vlfm_servers.sh --gpu 0
 ```
 
-启动器使用当前 Python（可用 `VLFM_PYTHON` 或 `PSGNAV_PYTHON` 覆盖），模型用本地文件，不自动下载。新服务的日志在 `outputs/vlfm_servers/`。可复用匹配的服务；端口已被不匹配的程序占用时会报错，不会杀它。停止本启动器管理的服务（不会关闭此前由别人启动的服务）：
+启动器使用当前 Python（可用 `VLFM_PYTHON` 或 `PSGNAV_PYTHON` 覆盖），模型用本地文件，不自动下载。日志在 `outputs/vlfm_servers/<会话名>/`。只有当前会话登记的四个进程均通过归属检查，且各端口返回对应 PID，才能复用。新会话只在四个端口全部空闲时启动；遇到别人的服务，请换端口，不要停止它。旧版本启动的服务没有 PID 响应头：等使用它的任务结束后，由原启动者停止对应会话，再重启。停止默认会话：
 
 ```bash
 bash scripts/launch_vlfm_servers.sh --stop
+```
+
+[InstanceNav H20 队列](../scripts/run_continuous_evaluation_vlfm_base_h20.sh) 会自行启动 `instancenav_h20` 会话，不必先启动默认会话。它默认使用 22181–22184；可在运行队列前覆盖 `GROUNDING_DINO_PORT`、`BLIP2ITM_PORT`、`SAM_PORT`、`YOLOV7_PORT`，服务和导航会继承同一组端口。评测结束后，只停止该 H20 会话：
+
+```bash
+bash scripts/launch_vlfm_servers.sh --stop --session instancenav_h20
 ```
 
 **预检 InstanceNav 的提示词④（不启动导航）：**

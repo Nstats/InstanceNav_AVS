@@ -48,6 +48,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200 if self.path == route else 404)
         if self.path == route:
             self.send_header('Allow', 'POST, OPTIONS')
+            override = Path('pid-header-' + model)
+            pid = override.read_text() if override.exists() else str(os.getpid())
+            if pid:
+                self.send_header('X-VLFM-Pid', pid)
         self.end_headers()
     def log_message(self, *args): pass
 with HTTPServer(('127.0.0.1', int(port)), Handler) as server:
@@ -142,55 +146,71 @@ def test_check_only_interpreter_order_cwd_gpu_and_clean_env(checkout, choice):
     assert not checkout.base.exists()
 
 
-def test_partial_reuse_start_idempotence_and_owned_stop(checkout):
-    with external('/gdino') as port:
-        checkout.env['GROUNDING_DINO_PORT'] = str(port)
-        launch = ('--session', 'mixed', '--gpu', '7')
-        result = checkout.invoke(*launch)
-        assert result.returncode == 0, result.stderr
-        path = checkout.base / 'mixed' / 'state.json'
-        state = json.loads(path.read_text())
-        assert path.stat().st_mode & 0o077 == path.parent.stat().st_mode & 0o077 == 0
-        assert set(state['pids']) == {'blip2itm', 'sam', 'yolov7'}
-        assert checkout.checks()[-1][0] == ['check']
-        for model, pid in state['pids'].items():
-            assert json.loads((checkout.root / ('ran-' + model)).read_text()) == [
-                pid, str(checkout.root), '7', None, sys.executable]
-            assert f'dummy {model}' in (path.parent / f'{model}.log').read_text()
-        assert checkout.invoke(*launch, FAIL_CHECK='full').returncode == 0
-        assert checkout.checks()[-1][0] == ['check', '--group', 'navigation']
-        assert json.loads(path.read_text()) == state
-        assert 'different GPU/ports' in checkout.invoke('--session', 'mixed', '--gpu', '2').stderr
-        assert 'different GPU/ports' in checkout.invoke(*launch, SAM_PORT='1').stderr
-        assert checkout.invoke('--stop', '--session', 'another').returncode == 0
-        assert all(launcher.probe(m, p) for m, p in checkout.ports().items())
-        # --stop uses the saved set, not current port/GPU config, assets, or port->PID lookup.
-        result = checkout.invoke('--stop', '--session', 'mixed', SAM_PORT='invalid',
-                                 VLFM_SERVER_GPU='invalid', FAIL_CHECK='any')
-        assert result.returncode == 0, result.stderr
-        assert not path.exists()
-        assert [m for m, p in checkout.ports().items() if launcher.probe(m, p)] == ['grounding_dino']
+def test_complete_owned_session_reuse_and_stop(checkout):
+    launch = ('--session', 'mine', '--gpu', '7')
+    result = checkout.invoke(*launch)
+    assert result.returncode == 0, result.stderr
+    path = checkout.base / 'mine' / 'state.json'
+    state = json.loads(path.read_text())
+    assert path.stat().st_mode & 0o077 == path.parent.stat().st_mode & 0o077 == 0
+    assert set(state['pids']) == set(launcher.SERVICES)
+    assert checkout.checks()[-1][0] == ['check']
+    for model, pid in state['pids'].items():
+        assert json.loads((checkout.root / ('ran-' + model)).read_text()) == [
+            pid, str(checkout.root), '7', None, sys.executable]
+        assert f'dummy {model}' in (path.parent / f'{model}.log').read_text()
+    assert checkout.invoke(*launch, FAIL_CHECK='full').returncode == 0
+    assert checkout.checks()[-1][0] == ['check', '--group', 'navigation']
+    assert checkout.invoke(*launch, FAIL_CHECK='navigation').returncode != 0
+    assert json.loads(path.read_text()) == state
+    assert 'different GPU/ports' in checkout.invoke('--session', 'mine', '--gpu', '2').stderr
+    assert 'different GPU/ports' in checkout.invoke(*launch, SAM_PORT='1').stderr
+    # Another session cannot reuse even our exact routes, and cannot stop them.
+    assert 'already in use' in checkout.invoke('--session', 'another').stderr
+    assert checkout.invoke('--stop', '--session', 'another').returncode == 0
+    assert all(launcher.probe(m, p, expected_pid=state['pids'][m]) for m, p in checkout.ports().items())
+    result = checkout.invoke('--stop', '--session', 'mine', SAM_PORT='invalid',
+                             VLFM_SERVER_GPU='invalid', FAIL_CHECK='any')
+    assert result.returncode == 0, result.stderr
+    assert not path.exists() and not any(launcher.probe(m, p) for m, p in checkout.ports().items())
 
 
-def test_all_legacy_routes_still_require_navigation_assets(checkout):
-    with ExitStack() as stack:
-        for key, _, route in launcher.SERVICES.values():
-            checkout.env[key] = str(stack.enter_context(external(route)))
-        assert checkout.invoke(FAIL_CHECK='full').returncode == 0
-        assert checkout.invoke(FAIL_CHECK='navigation').returncode != 0
-        assert all(check[0] == ['check', '--group', 'navigation'] for check in checkout.checks())
-        assert not list(checkout.base.glob('*/state.json'))
-        assert checkout.invoke('--stop').returncode == 0
-        assert all(launcher.probe(m, p) for m, p in checkout.ports().items())
-
-
-@pytest.mark.parametrize('route,allow', [('/sam', 'POST'), ('/mobile_sam', 'GET, OPTIONS'), ('*', 'POST')])
-def test_unidentified_service_is_never_reused_or_replaced(checkout, route, allow):
+@pytest.mark.parametrize('route,allow', [('/mobile_sam', 'OPTIONS, POST'), ('/sam', 'POST'),
+                                         ('/mobile_sam', 'GET, OPTIONS'), ('*', 'POST')])
+def test_occupied_port_refused_even_with_matching_external_route(checkout, route, allow):
     with external(route, allow) as port:
         result = checkout.invoke(SAM_PORT=str(port))
         assert result.returncode != 0
-        assert f'127.0.0.1:{port}' in result.stderr and 'OPTIONS /mobile_sam' in result.stderr
+        assert f'127.0.0.1:{port} is already in use' in result.stderr and 'SAM_PORT' in result.stderr
         assert not list(checkout.root.glob('ran-*')) and not (checkout.root / 'checks.jsonl').exists()
+        assert not list(checkout.base.glob('*/state.json'))
+        assert checkout.invoke('--stop').returncode == 0
+        with socket.create_connection(('127.0.0.1', port), timeout=1):
+            pass  # The external listener was left in place.
+
+
+@pytest.mark.parametrize('failure', ['partial', 'wrong_token', 'missing_header', 'different_pid'])
+def test_reuse_fails_closed_and_preserves_state(checkout, failure):
+    assert checkout.invoke('--session', 'mine').returncode == 0
+    path = checkout.base / 'mine' / 'state.json'
+    original = path.read_text()
+    header = checkout.root / 'pid-header-sam'
+    try:
+        state = json.loads(original)
+        if failure == 'partial':
+            del state['pids']['sam']
+        elif failure == 'wrong_token':
+            state['token'] = '0' * 32
+        else:
+            header.write_text('' if failure == 'missing_header' else str(os.getpid()))
+        launcher.save_state(path, state)
+        result = checkout.invoke('--session', 'mine')
+        assert result.returncode != 0 and '--stop --session mine' in result.stderr
+        assert ('incomplete/stale' if failure in ('partial', 'wrong_token') else 'X-VLFM-Pid') in result.stderr
+        assert json.loads(path.read_text()) == state
+        assert len(checkout.checks()) == 1
+    finally:
+        path.write_text(original)  # fixture stops all four original children
 
 
 def test_failed_preflight_starts_nothing(checkout):
@@ -200,14 +220,21 @@ def test_failed_preflight_starts_nothing(checkout):
 
 
 def test_child_failure_cleans_up_only_new_processes_and_keeps_logs(checkout):
-    with external('/gdino') as port:
-        checkout.env['GROUNDING_DINO_PORT'] = str(port)
-        result = checkout.invoke(FAIL_MODEL='sam')
-        assert result.returncode != 0 and 'sam exited with status 23' in result.stderr
-        log = checkout.base / 'vlfm_servers' / 'sam.log'
-        assert str(log) in result.stderr and 'dummy load failed' in log.read_text()
-        assert not list(checkout.base.glob('*/state.json'))
-        assert [m for m, p in checkout.ports().items() if launcher.probe(m, p)] == ['grounding_dino']
+    result = checkout.invoke(FAIL_MODEL='sam')
+    assert result.returncode != 0 and 'sam exited with status 23' in result.stderr
+    log = checkout.base / 'vlfm_servers' / 'sam.log'
+    assert str(log) in result.stderr and 'dummy load failed' in log.read_text()
+    assert not list(checkout.base.glob('*/state.json'))
+    assert not any(launcher.probe(m, p) for m, p in checkout.ports().items())
+
+
+@pytest.mark.parametrize('header', ['', '1'])
+def test_startup_rejects_ready_route_without_expected_child_pid(checkout, header):
+    (checkout.root / 'pid-header-sam').write_text(header)
+    result = checkout.invoke()
+    assert result.returncode != 0 and 'expected X-VLFM-Pid' in result.stderr
+    assert not list(checkout.base.glob('*/state.json'))
+    assert not any(launcher.probe(m, p) for m, p in checkout.ports().items())
 
 
 def test_timeout_rolls_back(checkout, monkeypatch):
@@ -269,6 +296,44 @@ def test_recycled_pid_is_not_signalled(checkout, wrong):
     finally:
         child.terminate()
         child.wait(timeout=5)
+
+
+def test_real_flask_options_identifies_serving_process(monkeypatch):
+    # Exercise Flask's automatic OPTIONS handler, not an inference POST or a real model.
+    import importlib.util
+    wrapper = launcher.ROOT / 'third_party/vlfm/vlfm/vlm/server_wrapper.py'
+    spec = importlib.util.spec_from_file_location('vlfm_test_wrapper', wrapper)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    apps = []
+    monkeypatch.setattr(module.Flask, 'run', lambda app, **kw: apps.append(app))
+    module.host_model(None, 'mobile_sam')
+    reply = apps[0].test_client().options('/mobile_sam')
+    assert reply.status_code == 200 and 'POST' in reply.allow
+    assert reply.headers['X-VLFM-Pid'] == str(os.getpid())
+
+
+@pytest.mark.parametrize('override,launch_status', [(False, 0), (True, 0), (False, 1)])
+def test_h20_queue_shares_ports_and_aborts_on_conflict(tmp_path, override, launch_status):
+    scripts = tmp_path / 'scripts'
+    scripts.mkdir()
+    name = 'run_continuous_evaluation_vlfm_base_h20.sh'
+    shutil.copyfile(launcher.ROOT / 'scripts' / name, scripts / name)
+    keys = [setting for setting, _, _ in launcher.SERVICES.values()]
+    record = 'printf "%s\\n" ' + ' '.join('"$' + k + '"' for k in keys)
+    (scripts / 'launch_vlfm_servers.sh').write_text(record + ' "$@" > launch\nexit "$RESULT"\n')
+    (scripts / 'run_instance_ablation.sh').write_text(record + ' > evaluate\n')
+    env = {k: v for k, v in os.environ.items() if k not in keys}
+    ports = [str((23181 if override else 22181) + i) for i in range(4)]
+    if override:
+        env.update(zip(keys, ports))
+    result = subprocess.run(['bash', str(scripts / name)], cwd=tmp_path, env=dict(env, RESULT=str(launch_status)))
+    assert result.returncode == launch_status
+    assert (tmp_path / 'launch').read_text().splitlines() == ports + ['--gpu', '0', '--session', 'instancenav_h20']
+    if not launch_status:
+        assert (tmp_path / 'evaluate').read_text().splitlines() == ports
+    else:
+        assert not (tmp_path / 'evaluate').exists()
 
 
 def test_refuses_unsafe_session_and_duplicate_ports(checkout):

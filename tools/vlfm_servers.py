@@ -51,24 +51,39 @@ def _options(port, route):
         conn.request('OPTIONS', route)
         response = conn.getresponse()
         allow = response.getheader('Allow', '')
-        return response.status, allow, (200 <= response.status < 300 and
-                                        'POST' in {m.strip().upper() for m in allow.split(',')})
+        advertises_post = 200 <= response.status < 300 and 'POST' in {m.strip().upper() for m in allow.split(',')}
+        return response.status, allow, advertises_post, response.getheader('X-VLFM-Pid')
     finally:
         conn.close()
 
 
-def probe(model, port):
-    """True for the model endpoint; False for no listener; refuse an unidentified listener."""
+def require_free_port(model, port):
+    # No session record: do not even send an HTTP request to an existing listener.
+    key = SERVICES[model][0]
+    try:
+        with socket.create_connection(('127.0.0.1', port), timeout=2):
+            pass
+    except ConnectionRefusedError:
+        return
+    except OSError as exc:
+        raise LauncherError(f'Cannot check 127.0.0.1:{port} for {model}: {exc}; refusing to start.') from exc
+    raise LauncherError(f'127.0.0.1:{port} is already in use; choose another {key}. '
+                        'The existing listener will not be reused or stopped.')
+
+
+def probe(model, port, *, expected_pid=None):
+    """Check route readiness; the launcher additionally requires its child's exact PID."""
     key, _, route = SERVICES[model]
     try:
-        status, allow, matches = _options(port, route)
-        if matches:
-            # A catch-all HTTP/CORS handler advertising POST for every path is not evidence.
-            if not _options(port, '/__vlfm_unknown_route__')[2]:
-                return True
+        status, allow, matches, pid = _options(port, route)
+        if not matches:
+            reason = f'HTTP {status}, Allow={allow!r}'
+        elif expected_pid is not None and pid != str(expected_pid):
+            reason = f'expected X-VLFM-Pid {expected_pid}, got {pid!r}'
+        elif _options(port, '/__vlfm_unknown_route__')[2]:
             reason = 'also advertises POST on an unknown route'
         else:
-            reason = f'HTTP {status}, Allow={allow!r}'
+            return True
     except ConnectionRefusedError:
         return False
     except (OSError, http.client.HTTPException) as exc:
@@ -184,7 +199,7 @@ def terminate(models, send):
     raise LauncherError(f'Could not stop {", ".join(live)}; session state retained. Retry --stop.')
 
 
-def start(path, gpu, ports, missing, env):
+def start(path, gpu, ports, env):
     # Refuse to create detached processes on platforms where we could not stop them safely.
     try:
         fd = os.open('/proc/self', os.O_DIRECTORY)
@@ -219,7 +234,7 @@ def start(path, gpu, ports, missing, env):
         return True
 
     try:
-        for model in missing:
+        for model in ports:
             check_children()
             with (path.parent / f'{model}.log').open('w') as log:
                 children[model] = subprocess.Popen([sys.executable, *_args(model, ports[model])], cwd=ROOT,
@@ -228,17 +243,17 @@ def start(path, gpu, ports, missing, env):
             state['pids'][model] = children[model].pid
             save_state(path, state)
         deadline = time.monotonic() + START_TIMEOUT
-        waiting = missing
+        waiting = list(ports)
         while waiting:
             check_children()
-            waiting = [m for m in waiting if not probe(m, ports[m])]
+            waiting = [m for m in waiting if not probe(m, ports[m], expected_pid=children[m].pid)]
             if waiting and time.monotonic() >= deadline:
                 raise LauncherError(f'Timed out waiting for {", ".join(waiting)}; inspect logs in {path.parent}')
             if waiting:
                 time.sleep(0.3)
-        # Reconfirm once, rather than repeatedly probing a busy legacy server during model loading.
+        # A port that became ready early may have changed while the other models loaded.
         for model, port in ports.items():
-            if not probe(model, port):
+            if not probe(model, port, expected_pid=children[model].pid):
                 raise LauncherError(f'{model} disappeared from port {port} during startup; inspect {path.parent}')
         check_children()
     except BaseException:
@@ -297,15 +312,25 @@ def run(args):
         if state and (gpu != state['gpu'] or ports != state['ports']):
             raise LauncherError(f'Session {args.session} has different GPU/ports; use {stop_hint} '
                                 'first or choose another session and ports.')
-        missing = [m for m, port in ports.items() if not probe(m, port)]
-        if state and (missing or not all(owned_signal(path, state, m) for m in state['pids'])):
-            raise LauncherError(f'Session {args.session} is incomplete/stale; inspect {path.parent} and '
-                                f'use {stop_hint} before restarting.')
-        preflight(env, navigation_only=not missing)
-        if missing:
-            print(f'Starting {", ".join(missing)} on physical GPU {gpu}; logs: {path.parent}', flush=True)
-            start(path, gpu, ports, missing, env)
-        print(f'VLFM endpoints ready: {ports}. Only this session\'s own children can be stopped.')
+        if state is None:
+            for model, port in ports.items():
+                require_free_port(model, port)
+            preflight(env)
+            print(f'Starting {", ".join(ports)} on physical GPU {gpu}; logs: {path.parent}', flush=True)
+            start(path, gpu, ports, env)
+        else:
+            hint = f'Inspect {path.parent} and use {stop_hint} before restarting this session.'
+            if set(state['pids']) != set(ports) or not all(owned_signal(path, state, m, sig=0) for m in ports):
+                raise LauncherError(f'Session {args.session} is incomplete/stale. {hint}')
+            for model, port in ports.items():
+                try:
+                    ready = probe(model, port, expected_pid=state['pids'][model])
+                except LauncherError as exc:
+                    raise LauncherError(f'{exc} {hint}') from exc
+                if not ready:
+                    raise LauncherError(f'Session {args.session}: {model} not listening on {port}. {hint}')
+            preflight(env, navigation_only=True)
+        print(f'VLFM endpoints ready for session {args.session}: {ports}.')
 
 
 def main():
