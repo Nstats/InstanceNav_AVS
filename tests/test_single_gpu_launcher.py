@@ -32,7 +32,7 @@ elif 'stop-watch' in args:
 '''
 
 
-def launch(tmp_path, gpus, **extra):
+def launch(tmp_path, gpus, *options, **extra):
     script = tmp_path / 'scripts/run_instance100.sh'
     script.parent.mkdir(exist_ok=True)
     script.write_text((ROOT / 'scripts/run_instance100.sh').read_text())
@@ -41,7 +41,7 @@ def launch(tmp_path, gpus, **extra):
     fake.chmod(0o755)
     env = {**os.environ, 'PSGNAV_PYTHON': str(fake), **extra}
     env.pop('ENABLE_CONTRADICTION_CHECK', None)
-    process = subprocess.Popen(['bash', str(script), '--gpus', gpus, '--timestamp', 'test'],
+    process = subprocess.Popen(['bash', str(script), '--gpus', gpus, '--timestamp', 'test', *options],
                                cwd=tmp_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                text=True, start_new_session=True)
     try:
@@ -66,6 +66,25 @@ def test_single_gpu_runs_one_worker_on_that_gpu(tmp_path):
     assert any(' merge ' in f' {line} ' and '--gpus 2' in line for line in calls)
     assert 'GPUs: 2 (1 worker(s))' in stdout and 'gpu2 exit 0' in stdout
     assert (tmp_path / 'outputs/instancenav_val10_100_test_gpu2.log').exists()
+
+
+def test_full_val_propagates_to_both_workers_and_merge(tmp_path):
+    from tools.run_instance_ablation import FULL_CONFIG, launch_command, settings
+    import yaml
+    base = yaml.safe_load((ROOT / 'configs/runtime/instancenav_unseen10_1000atomic_1m.yaml').read_text())
+    config = yaml.safe_load((ROOT / FULL_CONFIG).read_text())
+    base['DATASET']['DATA_PATH'] = 'data/datasets/instancenav/val_full/val_full.json.gz'
+    assert config == base  # Dataset size, not geometry or metrics, is the sole protocol change.
+    args = launch_command(settings('A0', nav_base='vlfm'), '0,1', full=True)
+    code, out, err, calls = launch(tmp_path, '0,1', *args[2:])
+    assert code == 0, out + err
+    workers = [line.split() for line in calls if 'VLFM_Nav.py' in line]
+    assert {w[w.index('--worker-gpu') + 1] for w in workers} == {'0', '1'}
+    for w in workers:
+        assert w[w.index('--config') + 1] == FULL_CONFIG
+        assert w[w.index('--episode_end') + 1] == '1000'
+    for action in ('init', 'merge'):
+        assert any(f' {action} ' in line and '--total 1000' in line for line in calls)
 
 
 def test_single_gpu_failure_is_reported(tmp_path):

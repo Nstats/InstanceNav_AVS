@@ -49,9 +49,23 @@ python tools/restore_instance100.py --verify-only
 HM3D场景、模型权重和API配置仍按上面的本地资源要求准备。
 五组消融的可移植启动命令和比较口径见 [100任务消融说明](reproduction/instance_ablation_100.md)。
 
+## InstanceNav 完整 val（可选）
+
+如需运行 `--full`，在已准备好上述原始文本和 36 个 val 分片的机器上单独生成全集，不覆盖固定百题：
+
+```bash
+python tools/prepare_instancenav.py --fraction 1 --seed 77 --output data/datasets/instancenav/val_full/val_full.json.gz
+```
+
+如原始文件在别处，可加 `--attributes` 和 `--content`。预期 1,000/1,000 题、36 个场景；seed 只固定任务排列，不剔除任何题。上面命令用本项目原始数据生成的 gzip SHA-256 为 `09f2352eaeb7b172fcac7a8de32f564d5c666d590086c6c7df707b1a86a3b524`。把 gzip 和同目录的 `val_full.manifest.json` 一起保留。只预检、不跑导航：
+
+```bash
+bash scripts/run_instance_ablation.sh A0 --full --nav-base vlfm --vlm qwen3.5-flash --instance-verification-prompt match_visible_evidence --gpus 0,1 --check-only
+```
+
 ## 当前实验设置
 
-- InstanceNav 固定 100 条，与源机相同；31 个 HM3D val 场景。
+- InstanceNav 默认固定 100 条，与源机相同；31 个 HM3D val 场景。显式 `--full` 换成完整 val，不改变动作预算、传感器或成功条件。
 - 每条最多 1000 个原子动作；停止距离和成功距离均为 1 米。
 - `rag_mode=0`；Qwen3.5-Flash；客户端关闭 thinking。
 - API 并发 8，初始输出上限 4096，响应缓存 4096，精确感知缓存开启。

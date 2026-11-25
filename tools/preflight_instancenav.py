@@ -11,7 +11,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path[:0]=[str(ROOT),str(ROOT/'habitat-lab'),str(ROOT/'GLIP')]
 
 
-def check(config_path, check_api=False):
+def check(config_path, check_api=False, expected_episodes=None):
     import yaml
     from utils.model_client import get_model_client, load_environment, ModelRequestError
     load_environment()
@@ -38,6 +38,8 @@ def check(config_path, check_api=False):
         problems.append(f'Missing prepared dataset: {dataset}; run tools/prepare_instancenav.py')
     else:
         data=json.load(gzip.open(dataset,'rt'))
+        if expected_episodes is not None and len(data['episodes']) != expected_episodes:
+            problems.append(f"Expected {expected_episodes} episodes, found {len(data['episodes'])} in {dataset}")
         scenes=sorted({ep['scene_id'] for ep in data['episodes']})
         missing=[s for s in scenes if not (Path(config['DATASET']['SCENES_DIR'])/s).is_file()]
         if missing:
@@ -87,5 +89,6 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config',default='configs/instancenav_val20_qwen.yaml')
     parser.add_argument('--check-api',action='store_true')
+    parser.add_argument('--expected-episodes', type=int)
     args=parser.parse_args()
-    raise SystemExit(0 if check(args.config,args.check_api) else 1)
+    raise SystemExit(0 if check(args.config,args.check_api,args.expected_episodes) else 1)

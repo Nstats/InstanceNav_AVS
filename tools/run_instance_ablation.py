@@ -29,6 +29,9 @@ CORE_TOP_LEVEL = {'PSG_Nav.py'}
 CORE_PACKAGES = {'utils', 'configs', 'graph'}
 DATA_FILES = ('data/datasets/instancenav/val10/val10.json.gz',
               'data/datasets/instancenav/val10/val10.manifest.json')
+FULL_CONFIG = 'configs/runtime/instancenav_val_full_1000atomic_1m.yaml'
+FULL_DATA_FILES = ('data/datasets/instancenav/val_full/val_full.json.gz',
+                   'data/datasets/instancenav/val_full/val_full.manifest.json')
 COMMON = {
     'LANDMARK_COMPARISON_REPEATS': '1', 'LANDMARK_COMPARISON_WORKERS': '10',
     'ENABLE_INSTANCE_DESCRIPTION_FOR_EXPLORATION': 'false',
@@ -124,12 +127,14 @@ def settings(experiment, vlm=COMMON['VLM'], nav_base='psgnav', overrides=None):
     return resolved
 
 
-def launch_command(resolved, gpus, timestamp=None, resume=False):
+def launch_command(resolved, gpus, timestamp=None, resume=False, *, full=False):
     cmd = ['bash', str(ROOT / 'scripts/run_instance100.sh')]
     for key, value in resolved.items():
         cmd.extend([flag(key), value])
     if 'NAV_BASE' not in resolved:
         cmd.extend(['--nav-base', 'psgnav'])
+    if full:
+        cmd.append('--full')
     cmd.extend(['--gpus', gpus])
     if timestamp:
         cmd.extend(['--timestamp', timestamp])
@@ -138,7 +143,7 @@ def launch_command(resolved, gpus, timestamp=None, resume=False):
     return cmd
 
 
-def source_inventory(nav_base='psgnav'):
+def source_inventory(nav_base='psgnav', *, full=False):
     """Archive application code/config, not credentials, datasets or model weights."""
     names = subprocess.check_output(
         ['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'], cwd=ROOT
@@ -146,7 +151,7 @@ def source_inventory(nav_base='psgnav'):
     paths = set()
     for name in filter(None, names):
         p = Path(name)
-        if name in FINGERPRINT_EXCLUDE:
+        if name in FINGERPRINT_EXCLUDE or (name == FULL_CONFIG and not full):
             continue
         vlfm_source = (nav_base == 'vlfm' and
                        (p.parts[0] == 'nav_bases' or p.parts[:2] == ('third_party', 'vlfm')) and
@@ -159,7 +164,7 @@ def source_inventory(nav_base='psgnav'):
                 paths.add(name)
     # The subset itself is hashed, not archived (large data remains external).
     hashes = {n: hashlib.sha256((ROOT / n).read_bytes()).hexdigest()
-              for n in sorted(paths | set(DATA_FILES))}
+              for n in sorted(paths | set(FULL_DATA_FILES if full else DATA_FILES))}
     submodules = subprocess.check_output(['git', 'submodule', 'status', '--recursive'], cwd=ROOT).decode()
     digest = hashlib.sha256(json.dumps({'files': hashes, 'submodules': submodules},
                                     sort_keys=True).encode()).hexdigest()
@@ -168,7 +173,7 @@ def source_inventory(nav_base='psgnav'):
 
 def is_core(name):
     parts = Path(name).parts
-    return name in CORE_TOP_LEVEL or name in DATA_FILES or (len(parts) > 1 and parts[0] in CORE_PACKAGES)
+    return name in CORE_TOP_LEVEL or name in DATA_FILES or name in FULL_DATA_FILES or (len(parts) > 1 and parts[0] in CORE_PACKAGES)
 
 
 def core_digest(hashes, submodules):
@@ -202,12 +207,15 @@ def archive_run(args, resolved, cmd, directory, inventory):
     # an alias with the same final values describes the same run.
     identity = {'experiment': args.experiment, 'settings': resolved, 'timestamp': args.timestamp,
                 'dataset': 'instancenav', 'nav_base': resolved.get('NAV_BASE', 'psgnav')}
+    if getattr(args, 'full', False):
+        identity.update(task_set='full_val', dataset_config=FULL_CONFIG, total=1000)
     if args.resume:
         if not manifest_path.is_file():
             raise ValueError('Resume requires this launcher\'s original manifest')
         prior = json.loads(manifest_path.read_text())
         # Older manifests encode the base only inside settings (absent = PSG-Nav).
         if (prior.get('settings') != resolved or prior.get('timestamp') != args.timestamp
+                or prior.get('task_set', 'val10') != identity.get('task_set', 'val10')
                 or prior.get('dataset', 'instancenav') != identity['dataset']
                 or prior.get('nav_base', identity['nav_base']) != identity['nav_base']):
             raise ValueError('Resume settings changed; restore the original run settings')
@@ -245,6 +253,7 @@ def archive_run(args, resolved, cmd, directory, inventory):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument('experiment', choices=VARIANTS, help='starting preset; explicit navigation flags override it')
+    parser.add_argument('--full', action='store_true', help='run the full official val split instead of the frozen 100')
     parser.add_argument('--gpus', default='0,1')
     parser.add_argument('--timestamp')
     parser.add_argument('--suite', default='avs5_20261110')
@@ -273,7 +282,7 @@ def main():
         parser.error('--timestamp is required for evaluation/resume')
     overrides = {key: getattr(args, key) for key in switches if getattr(args, key) is not None}
     resolved = settings(args.experiment, args.vlm, args.nav_base, overrides)
-    cmd = launch_command(resolved, args.gpus, args.timestamp, args.resume)
+    cmd = launch_command(resolved, args.gpus, args.timestamp, args.resume, full=args.full)
     env = {**os.environ, **resolved, 'PSGNAV_PYTHON': sys.executable,
            'NAV_BASE': args.nav_base, 'INSTANCE_ABLATION_ID': args.experiment}
     for legacy in ('ENABLE_CONTRADICTION_CHECK', 'ENABLE_INSTANCE_CONFIRMATION_BEFORE_FIND_GOAL'):
@@ -290,7 +299,7 @@ def main():
     if result.returncode or args.check_only:
         return result.returncode
     directory = ROOT / 'outputs/instance_ablation_runs' / args.suite / args.timestamp
-    manifest = archive_run(args, resolved, cmd, directory, source_inventory(args.nav_base))
+    manifest = archive_run(args, resolved, cmd, directory, source_inventory(args.nav_base, full=args.full))
     if args.resume:
         env['INSTANCE_ABLATION_ID'] = json.loads(manifest.read_text())['experiment']
     env['INSTANCE_ABLATION_MANIFEST'] = str(manifest)

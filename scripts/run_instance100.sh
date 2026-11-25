@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Evaluate the fixed 100-episode InstanceNav sample.
+# Evaluate the fixed 100-episode InstanceNav sample, or the full official val split with --full.
 # Instance confirmation applies before setting candidate or confirmed goal states.
 # Choose the primary confirmation policy, then optionally recheck positive matches.
 set -euo pipefail
@@ -70,6 +70,7 @@ unset ENABLE_INSTANCE_CONFIRMATION_BEFORE_FIND_GOAL
 : "${NAV_BASE:=psgnav}"  # --nav-base
 
 # 0: preflight then navigate. --check-only sets 1 and exits after validation.
+full=0
 check_only=0
 settings_only=0  # Used by the preset launcher's --dry-run (no assets, torch or API).
 passthrough=()
@@ -155,6 +156,7 @@ Options:
   --gpus A[,B...]                   Run the 100 tasks on one or more GPUs (default: 0,1). Each GPU keeps
                                     one process, claims the next unfinished task, and
                                     writes its own log
+  --full                            Use all 1,000 official val tasks (default: fixed 100)
   --check-only                      Validate inputs without navigation
   -h, --help                        Show this help
 EOF
@@ -202,6 +204,7 @@ normalize_bool_var() {
 
 while (( $# > 0 )); do
   case "$1" in
+    --full) full=1; shift ;;
     --validate-settings-only)
       settings_only=1
       shift
@@ -515,6 +518,14 @@ except ValueError as exc:
     sys.exit(str(exc))
 PY
 if (( settings_only )); then exit 0; fi
+nav_config=configs/runtime/instancenav_unseen10_1000atomic_1m.yaml
+total=100
+log_prefix=instancenav_val10_100
+if (( full )); then
+  nav_config=configs/runtime/instancenav_val_full_1000atomic_1m.yaml
+  total=1000
+  log_prefix=instancenav_val_full
+fi
 relative_evidence_header='{"enabled":false}'
 if [[ "$ENABLE_RELATIVE_EVIDENCE" == true ]]; then
   relative_evidence_header="$("$psgnav_python" - <<'PY'
@@ -551,7 +562,7 @@ if [[ "$NAV_BASE" == vlfm ]]; then
 fi
 
 if (( check_only )); then
-  "$psgnav_python" tools/preflight_instancenav.py --config configs/runtime/instancenav_unseen10_1000atomic_1m.yaml
+  "$psgnav_python" tools/preflight_instancenav.py --config "$nav_config" --expected-episodes "$total"
   echo "LANDMARK_COMPARISON_REPEATS: ${LANDMARK_COMPARISON_REPEATS}"
   echo "LANDMARK_COMPARISON_WORKERS: ${LANDMARK_COMPARISON_WORKERS}"
   echo "ENABLE_INSTANCE_DESCRIPTION_FOR_EXPLORATION: ${ENABLE_INSTANCE_DESCRIPTION_FOR_EXPLORATION}"
@@ -587,8 +598,8 @@ run_worker() {
   local -a cmd
   run_timestamp="${user_timestamp}"
   mkdir -p outputs
-  log_file="$PWD/outputs/instancenav_val10_100_${run_timestamp}_gpu${worker_gpu}.log"
-  tasks_file="$PWD/outputs/instancenav_val10_100_${run_timestamp}_gpu${worker_gpu}.tasks.json"
+  log_file="$PWD/outputs/${log_prefix}_${run_timestamp}_gpu${worker_gpu}.log"
+  tasks_file="$PWD/outputs/${log_prefix}_${run_timestamp}_gpu${worker_gpu}.tasks.json"
   {
     echo "GPU: ${worker_gpu}"
     echo "CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES}"
@@ -630,8 +641,8 @@ run_worker() {
   cmd=(
     "$psgnav_python" -u "${nav_entry}"
     --dataset instancenav --dataset_split val
-    --config configs/runtime/instancenav_unseen10_1000atomic_1m.yaml
-    --rag_mode "${RAG_MODE}" --episode_start 0 --episode_end 100
+    --config "$nav_config"
+    --rag_mode "${RAG_MODE}" --episode_start 0 --episode_end "$total"
     --timestamp "${run_timestamp}"
     --work-queue "${work_queue}" --worker-gpu "${worker_gpu}"
   )
@@ -703,12 +714,12 @@ run_dual() {
   echo "QWEN_MODEL_NAME: ${QWEN_MODEL_NAME}"
   echo "PSGNAV_MODEL_BACKEND: ${PSGNAV_MODEL_BACKEND}"
   for gpu in "${gpu_ids[@]}"; do
-    echo "Log gpu${gpu}: $PWD/outputs/instancenav_val10_100_${run_timestamp}_gpu${gpu}.log"
+    echo "Log gpu${gpu}: $PWD/outputs/${log_prefix}_${run_timestamp}_gpu${gpu}.log"
   done
   echo "Results: ${results_root}/"
   echo "Queue: ${queue}"
   set +e
-  "$psgnav_python" tools/preflight_instancenav.py --config configs/runtime/instancenav_unseen10_1000atomic_1m.yaml
+  "$psgnav_python" tools/preflight_instancenav.py --config "$nav_config" --expected-episodes "$total"
   preflight_status=$?
   set -e
   if (( preflight_status != 0 )); then
@@ -736,7 +747,7 @@ run_dual() {
     echo "--resume requires the original timestamp and ${queue}" >&2
     exit 1
   else
-    "$psgnav_python" tools/eval_schedule.py init --schedule "${queue}" --total 100 --max-episode-steps 1000
+    "$psgnav_python" tools/eval_schedule.py init --schedule "${queue}" --total "$total" --max-episode-steps 1000
   fi
   # fd 3 stays on the terminal. Workers do not inherit the progress variable.
   exec 3>&1
@@ -746,6 +757,7 @@ run_dual() {
     --schedule "${queue}" --gpus "${gpu_list}" --started "${started}" &
   watch_pid=$!
   worker_common=(--work-queue "${queue}" --timestamp "${run_timestamp}")
+  if (( full )); then worker_common+=(--full); fi
   if (( resume )); then
     worker_common+=(--resume)
   fi
@@ -789,7 +801,7 @@ run_dual() {
   wait "${watch_pid}" || true
   set +e
   "$psgnav_python" tools/eval_schedule.py merge \
-    --results-root "${results_root}" --gpus "${gpu_list}" --total 100
+    --results-root "${results_root}" --gpus "${gpu_list}" --total "$total"
   merge_status=$?
   set -e
   failed=0
@@ -799,7 +811,7 @@ run_dual() {
   done
   echo "merge exit ${merge_status}"
   for gpu in "${gpu_ids[@]}"; do
-    echo "Log gpu${gpu}: $PWD/outputs/instancenav_val10_100_${run_timestamp}_gpu${gpu}.log"
+    echo "Log gpu${gpu}: $PWD/outputs/${log_prefix}_${run_timestamp}_gpu${gpu}.log"
   done
   if (( failed || merge_status != 0 )); then
     echo "Evaluation incomplete."
@@ -823,7 +835,7 @@ fi
 passthrough+=(--timestamp "${run_timestamp}")
 
 mkdir -p outputs
-log_file="$PWD/outputs/instancenav_val10_100_${run_timestamp}.log"
+log_file="$PWD/outputs/${log_prefix}_${run_timestamp}.log"
 # fd 3 stays on the terminal for the progress line. Python text goes to the log.
 exec 3>&1
 {
@@ -860,7 +872,7 @@ set +e
   echo "Log: ${log_file}"
   echo "Results: ${PWD}/data/results_instancenav_${run_timestamp}/"
   echo "Key parameters and the progress line stay on the terminal. Everything else goes to this log."
-  "$psgnav_python" tools/preflight_instancenav.py --config configs/runtime/instancenav_unseen10_1000atomic_1m.yaml
+  "$psgnav_python" tools/preflight_instancenav.py --config "$nav_config" --expected-episodes "$total"
 } >>"${log_file}" 2>&1
 preflight_status=$?
 set -e
@@ -871,8 +883,8 @@ fi
 
 set +e
 PSGNAV_LOG_FILE="${log_file}" PSGNAV_PROGRESS_FD=3 "$psgnav_python" -u "${nav_entry}" --dataset instancenav --dataset_split val \
-  --config configs/runtime/instancenav_unseen10_1000atomic_1m.yaml \
-  --rag_mode "${RAG_MODE}" --episode_start 0 --episode_end 100 \
+  --config "$nav_config" \
+  --rag_mode "${RAG_MODE}" --episode_start 0 --episode_end "$total" \
   "${passthrough[@]}" >>"${log_file}" 2>&1
 exit_status=$?
 set -e

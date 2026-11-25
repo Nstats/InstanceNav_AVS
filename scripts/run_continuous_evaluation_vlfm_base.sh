@@ -43,3 +43,36 @@ bash scripts/run_instance_ablation.sh E5 \
   --gpus 0,1 \
   --suite vlfm_inst100_visible_selection \
   --timestamp inst100_vlfm_visible_e5_local_r1
+
+# 全集主配置 A0：沿用百题的 VLFM、可见证据提示词和单票确认；每组各一轮。
+# InstanceNav 官方 val 全集：1,000 题。
+bash scripts/run_instance_ablation.sh A0 \
+  --full \
+  --nav-base vlfm \
+  --vlm qwen3.5-flash \
+  --instance-verification-prompt match_visible_evidence \
+  --gpus 0,1 \
+  --suite vlfm_full_visible \
+  --timestamp inst_val_full_vlfm_a0_visible_local_r1
+
+# CoIN val_unseen 全集：459 题。
+bash scripts/run_coin_e0.sh \
+  --split val_unseen \
+  --full \
+  --nav-base vlfm \
+  --vlm qwen3.5-flash \
+  --instance-verification-prompt match_visible_evidence \
+  --enable-instance-confirmation true \
+  --gpus 0,1 \
+  --timestamp coin_val_unseen_full_vlfm_a0_visible_local_r1
+
+# CoIN val_seen_synonyms 全集：359 题。
+bash scripts/run_coin_e0.sh \
+  --split val_seen_synonyms \
+  --full \
+  --nav-base vlfm \
+  --vlm qwen3.5-flash \
+  --instance-verification-prompt match_visible_evidence \
+  --enable-instance-confirmation true \
+  --gpus 0,1 \
+  --timestamp coin_val_seen_synonyms_full_vlfm_a0_visible_local_r1
