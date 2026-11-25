@@ -1,6 +1,7 @@
 # Copyright (c) 2023 Boston Dynamics AI Institute LLC. All rights reserved.
 
 import base64
+import fcntl
 import os
 import random
 import socket
@@ -91,36 +92,13 @@ def send_request(url: str, **kwargs: Any) -> dict:
 
 def _send_request(url: str, **kwargs: Any) -> dict:
     lockfiles_dir = "lockfiles"
-    if not os.path.exists(lockfiles_dir):
-        os.makedirs(lockfiles_dir)
-    filename = url.replace("/", "_").replace(":", "_") + ".lock"
+    os.makedirs(lockfiles_dir, exist_ok=True)
+    filename = url.replace("/", "_").replace(":", "_") + ".flock"
     filename = filename.replace("localhost", socket.gethostname())
-    filename = os.path.join(lockfiles_dir, filename)
-    try:
-        while True:
-            # Use a while loop to wait until this filename does not exist
-            while os.path.exists(filename):
-                # If the file exists, wait 50ms and try again
-                time.sleep(0.05)
-
-                try:
-                    # If the file was last modified more than 120 seconds ago, delete it
-                    if time.time() - os.path.getmtime(filename) > 120:
-                        os.remove(filename)
-                except FileNotFoundError:
-                    pass
-
-            rand_str = str(random.randint(0, 1000000))
-
-            with open(filename, "w") as f:
-                f.write(rand_str)
-            time.sleep(0.05)
-            try:
-                with open(filename, "r") as f:
-                    if f.read() == rand_str:
-                        break
-            except FileNotFoundError:
-                pass
+    # Keep the inode: unlinking it could let a newcomer bypass existing waiters.
+    # Closing the descriptor (including on process exit) releases the lock.
+    with open(os.path.join(lockfiles_dir, filename), "a") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
 
         # Create a payload dict which is a clone of kwargs but all np.array values are
         # converted to strings
@@ -139,8 +117,7 @@ def _send_request(url: str, **kwargs: Any) -> dict:
             try:
                 resp = requests.post(url, headers=headers, json=payload, timeout=1)
                 if resp.status_code == 200:
-                    result = resp.json()
-                    break
+                    return resp.json()
                 else:
                     raise Exception("Request failed")
             except (
@@ -150,19 +127,3 @@ def _send_request(url: str, **kwargs: Any) -> dict:
                 print(e)
                 if time.time() - start_time > 20:
                     raise Exception("Request timed out after 20 seconds")
-
-        try:
-            # Delete the lock file
-            os.remove(filename)
-        except FileNotFoundError:
-            pass
-
-    except Exception as e:
-        try:
-            # Delete the lock file
-            os.remove(filename)
-        except FileNotFoundError:
-            pass
-        raise e
-
-    return result

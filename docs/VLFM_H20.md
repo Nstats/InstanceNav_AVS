@@ -60,6 +60,8 @@ bash scripts/launch_vlfm_servers.sh --stop
 bash scripts/launch_vlfm_servers.sh --stop --session instancenav_h20
 ```
 
+导航客户端用 Linux `flock` 串行访问同一个模型端点。单 worker 不再固定等 50 ms，不同端点互不阻塞。`lockfiles/*.flock` 留在磁盘上是正常的，不代表服务忙；运行中不要删除。**升级时，让同一组端口上的所有旧导航 worker 自然跑完，再启动新版本的 worker**：旧 `.lock` 和新 `.flock` 不互认，仅更换客户端锁不需要重启模型服务。
+
 **预检 InstanceNav 的提示词④（不启动导航）：**
 
 ```bash

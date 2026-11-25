@@ -18,4 +18,5 @@ bash scripts/run_coin_e0.sh \
   --instance-verification-prompt match_visible_evidence \
   --enable-instance-confirmation true \
   --gpu 0 \
+  --resume \
   --timestamp coin_val_seen_full_vlfm_a0_visible_h20_r1

@@ -22,6 +22,10 @@ def build_handler(name):
                               runtime.ROOT / 'GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py',
                               assets / 'groundingdino_swint_ogc.pth',
                               device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
+        if model.device.type == 'cuda':
+            # Each service has its own process; leave cuDNN and the other models alone.
+            torch.backends.cuda.matmul.allow_tf32 = True
+            print('[GroundingDINO] CUDA matmul allow_tf32=True', flush=True)
         return 'gdino', lambda p: model.predict(str_to_image(p['image']), caption=p['caption']).to_json()
     if name == 'blip2itm':
         from lavis_itm import BLIP2ITM
