@@ -323,6 +323,7 @@ def test_h20_queue_shares_ports_and_aborts_on_conflict(tmp_path, override, launc
     record = 'printf "%s\\n" ' + ' '.join('"$' + k + '"' for k in keys)
     (scripts / 'launch_vlfm_servers.sh').write_text(record + ' "$@" > launch\nexit "$RESULT"\n')
     (scripts / 'run_instance_ablation.sh').write_text(record + ' > evaluate\n')
+    (scripts / 'run_coin_e0.sh').write_text(record + ' "$@" > coin\n')
     env = {k: v for k, v in os.environ.items() if k not in keys}
     ports = [str((23181 if override else 22181) + i) for i in range(4)]
     if override:
@@ -330,10 +331,15 @@ def test_h20_queue_shares_ports_and_aborts_on_conflict(tmp_path, override, launc
     result = subprocess.run(['bash', str(scripts / name)], cwd=tmp_path, env=dict(env, RESULT=str(launch_status)))
     assert result.returncode == launch_status
     assert (tmp_path / 'launch').read_text().splitlines() == ports + ['--gpu', '0', '--session', 'instancenav_h20']
+    assert not (tmp_path / 'evaluate').exists()  # The H20 queue must not launch InstanceNav RA.
     if not launch_status:
-        assert (tmp_path / 'evaluate').read_text().splitlines() == ports
+        values = (tmp_path / 'coin').read_text().splitlines()
+        assert values[:4] == ports
+        args = values[4:]
+        assert '--full' in args and args[args.index('--split') + 1] == 'val_seen'
+        assert args[args.index('--gpu') + 1] == '0' and '--gpus' not in args
     else:
-        assert not (tmp_path / 'evaluate').exists()
+        assert not (tmp_path / 'coin').exists()
 
 
 def test_refuses_unsafe_session_and_duplicate_ports(checkout):

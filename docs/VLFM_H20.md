@@ -54,7 +54,7 @@ bash scripts/launch_vlfm_servers.sh --gpu 0
 bash scripts/launch_vlfm_servers.sh --stop
 ```
 
-[InstanceNav H20 队列](../scripts/run_continuous_evaluation_vlfm_base_h20.sh) 会自行启动 `instancenav_h20` 会话，不必先启动默认会话。它默认使用 22181–22184；可在运行队列前覆盖 `GROUNDING_DINO_PORT`、`BLIP2ITM_PORT`、`SAM_PORT`、`YOLOV7_PORT`，服务和导航会继承同一组端口。评测结束后，只停止该 H20 会话：
+[VLFM H20 队列](../scripts/run_continuous_evaluation_vlfm_base_h20.sh) 只跑 CoIN `val_seen` 全集；它沿用 `instancenav_h20` 服务会话，不必先启动默认会话。它默认使用 22181–22184；可在运行队列前覆盖 `GROUNDING_DINO_PORT`、`BLIP2ITM_PORT`、`SAM_PORT`、`YOLOV7_PORT`，服务和导航会继承同一组端口。评测结束后，只停止该 H20 会话：
 
 ```bash
 bash scripts/launch_vlfm_servers.sh --stop --session instancenav_h20
