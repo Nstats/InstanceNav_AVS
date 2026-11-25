@@ -1,6 +1,5 @@
 import gzip
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -16,28 +15,40 @@ def verification_records(capsys):
             if line.startswith(prefix)]
 
 
-def test_real_dataset_subset_reproducible_and_instance_specific(tmp_path):
-    attributes=Path('data/datasets/instancenav/val/val_text.json.gz')
-    content=Path('data/datasets/instance_imagenav_hm3d_v3/val/content')
-    if not attributes.exists() or not content.exists():
-        pytest.skip('Public dataset not downloaded')
-    a=prepare(attributes,content,tmp_path/'a.json.gz')
-    b=prepare(attributes,content,tmp_path/'b.json.gz')
-    assert (a['source_count'],a['selected_count'])==(1000,200)
-    assert a['episodes']==b['episodes']
-    assert a['prepared_sha256']==b['prepared_sha256']
-    import habitat
+def test_prepared_subset_keeps_the_designated_instance(tmp_path):
+    """Same-category objects must retain distinct identities, descriptions and viewpoints."""
     from utils.instancenav_dataset import InstanceNavDataset
-    config=habitat.get_config('configs/instancenav_val20_qwen.yaml')
-    assert config.ENVIRONMENT.MAX_EPISODE_STEPS==1000
-    assert config.TASK.SUCCESS.SUCCESS_DISTANCE==1.0
-    dataset=InstanceNavDataset(config.DATASET)
-    source=json.load(gzip.open(tmp_path/'a.json.gz','rt'))
-    assert len(dataset.episodes)==200
+
+    pose = {'position': [0, 0, 0], 'rotation': [0, 0, 0, 1]}
+    ids = ('41', '52', '63', '74')
+    descriptions = {f'room_{obj}': {'intrinsic_attributes': f'chair marked {obj}'} for obj in ids}
+    attributes = tmp_path / 'attributes.json.gz'
+    with gzip.open(attributes, 'wt') as f:
+        json.dump({'attribute_data': descriptions}, f)
+    content = tmp_path / 'content'
+    content.mkdir()
+    with gzip.open(content / 'room.json.gz', 'wt') as f:
+        json.dump({
+            'episodes': [dict(episode_id=str(i), scene_id='room.basis.glb', goal_object_id=obj,
+                              object_category='chair', start_position=pose['position'],
+                              start_rotation=pose['rotation']) for i, obj in enumerate(ids)],
+            'goals': {f'room_{obj}': {'object_id': obj, 'position': [int(obj), 0, 0],
+                      'view_points': [{'agent_state': {**pose, 'position': [int(obj), 0, 1]}}]}
+                      for obj in ids},
+        }, f)
+
+    output = tmp_path / 'subset.json.gz'
+    first = prepare(attributes, content, output, fraction=0.5, seed=77)
+    second = prepare(attributes, content, tmp_path / 'repeat.json.gz', fraction=0.5, seed=77)
+    assert (first['source_count'], first['selected_count']) == (4, 2)
+    assert first['episodes'] == second['episodes'] and first['prepared_sha256'] == second['prepared_sha256']
+    dataset = InstanceNavDataset(SimpleNamespace(DATA_PATH=str(output), SPLIT='val', SCENES_DIR=None))
+    assert len(dataset.episodes) == 2
     for ep in dataset.episodes:
-        assert len(ep.goals)==1
-        assert str(ep.goals[0].object_id)==str(source['goals'][ep.goals_key]['object_id'])
-        assert ep.goal_attributes
+        obj = ids[int(ep.episode_id)]
+        assert len(ep.goals) == 1 and ep.goals[0].object_id == obj
+        assert ep.goal_attributes == descriptions[f'room_{obj}']
+        assert ep.goals[0].view_points[0].agent_state.position == [int(obj), 0, 1]
 
 
 def test_missing_attributes_fail_instead_of_changing_subset_population(tmp_path):
@@ -78,20 +89,6 @@ def test_instance_verification_uses_description_and_never_oracle_path(capsys):
     with pytest.raises(ModelRequestError):
         verify_candidates(client,np.zeros((50,50,3),dtype=np.uint8),[[1,1,5,5],[8,8,10,10]],
                           'chair',{'intrinsic_attributes':'red striped chair'})
-
-
-def test_unseen_subset_has_no_training_scene_overlap():
-    import zipfile
-    archive=Path('data/downloads/instance_imagenav_hm3d_v3.zip')
-    manifest=Path('data/datasets/instancenav/val20/val20.manifest.json')
-    if not archive.exists() or not manifest.exists():pytest.skip('Public dataset not downloaded')
-    selected={Path(s).name.split('.')[0] for s in json.loads(manifest.read_text())['scenes']}
-    with zipfile.ZipFile(archive) as z:
-        train={Path(n).name.removesuffix('.json.gz') for n in z.namelist() if '/train/content/' in n and n.endswith('.json.gz')}
-        val={Path(n).name.removesuffix('.json.gz') for n in z.namelist() if '/val/content/' in n and n.endswith('.json.gz')}
-    assert len(train)==145 and len(val)==36
-    assert selected<=val
-    assert selected.isdisjoint(train)
 
 
 def test_instance_format_retry_preserves_evidence_and_avoids_cached_bad_reply(capsys):

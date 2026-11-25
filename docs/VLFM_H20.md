@@ -54,4 +54,18 @@ bash scripts/launch_vlfm_servers.sh --gpu 0
 bash scripts/launch_vlfm_servers.sh --stop
 ```
 
+**预检 InstanceNav 的提示词④（不启动导航）：**
+
+```bash
+bash scripts/run_instance_ablation.sh A0 --nav-base vlfm --instance-verification-prompt match_visible_evidence --gpus 0 --check-only
+```
+
+`A0` 是起始预设，不是实验组合白名单。普通 `A0` 默认沿用 `match_strict_no`；上面的显式参数优先，也可以将 `vlfm` 换成 `psgnav`。旧的 `A0VisibleEvidence` 是相同参数的快捷写法。`--dry-run` 只校验配置并打印最终参数；正式运行时用新的 `--timestamp`，恢复同一次运行时 `--resume` 须使用相同的有效参数。InstanceNav 的 VLFM 支持 A0，以及主动接近的 B、带独立准入预筛的 RA、同一候选在不同策略步得到两票才锁定的 E5；未实现的组合仍在预检拒绝。三种接近配置不改变确认前的目标地图，临时目标到达或 PointNav 返回 STOP 后退回前沿探索。
+
+CoIN 同样支持显式覆盖，预检示例：
+
+```bash
+bash scripts/run_coin_e0.sh --split val_unseen --subset 100 --nav-base vlfm --instance-verification-prompt match_visible_evidence --gpu 0 --check-only
+```
+
 当前 [CoIN H20 队列](../scripts/run_continuous_evaluation_coin_h20.sh) 只运行 PSG-Nav，不会启动 VLFM。需要在 H20 测 VLFM 时，先按上文启动服务，再用 CoIN 启动器显式指定 `--nav-base vlfm`、`--gpu 0` 和新的 `--timestamp`。仅检查部署时，运行 `--check-only` 即可，不需要正式测评。

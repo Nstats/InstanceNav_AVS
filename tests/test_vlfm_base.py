@@ -66,6 +66,91 @@ def test_unusable_proposals_are_skipped():
     verify.assert_not_called()
 
 
+@pytest.mark.parametrize('case', ['no_target', 'move', 'pointnav_stop', 'reached', 'stuck', 'frontier_stop'])
+def test_provisional_waypoint_is_not_a_committed_stop(case):
+    from types import SimpleNamespace
+    import torch
+    from nav_bases.vlfm_agent import _CandidateApproachExploration
+
+    class Frontier:
+        def _explore(self, observations):
+            # Even if the next frontier is near the old waypoint, the discarded STOP
+            # must not be present in PointNav's recurrent state.
+            assert not self.stale_stop
+            return torch.tensor([[0 if case == 'frontier_stop' else 2]])
+
+    class Policy(_CandidateApproachExploration, Frontier):
+        _stop_action = torch.tensor([[0]])
+
+        def _pointnav(self, xy, stop):
+            assert not stop
+            self.stale_stop = case != 'move'
+            return torch.tensor([[0 if self.stale_stop else 1]])
+
+    p = Policy()
+    goal = np.array([0.5 if case == 'reached' else 3., 0.])
+    p.avs = SimpleNamespace(approach_goal=None if case == 'no_target' else goal, release_approach=mock.Mock())
+    p.avs_context = lambda: {'step': 99}
+    p._pointnav_stop_radius = 0.9
+    p._observations_cache = {'robot_xy': np.zeros(2)}
+    p._last_approach_xy = np.zeros(2)
+    p._stationary_approach_steps = 11 if case == 'stuck' else 0
+    p._pointnav_policy = SimpleNamespace(reset=mock.Mock(side_effect=lambda: setattr(p, 'stale_stop', False)))
+    p.stale_stop = False
+    p._policy_info = {}
+    with mock.patch.object(p, '_pointnav', wraps=p._pointnav) as local, mock.patch('utils.instance_verifier.log_instance_verification'):
+        action = p._explore({})
+    assert action.item() == {'move': 1, 'frontier_stop': 0}.get(case, 2)
+    assert local.call_count == int(case in ('move', 'pointnav_stop', 'frontier_stop'))
+    if case in ('reached', 'stuck', 'pointnav_stop', 'frontier_stop'):
+        p.avs.release_approach.assert_called_once_with('pointnav_stop' if case == 'frontier_stop' else case, {'step': 99})
+        p._pointnav_policy.reset.assert_called_once()
+    else:
+        p.avs.release_approach.assert_not_called()
+        p._pointnav_policy.reset.assert_not_called()
+
+
+@pytest.mark.parametrize('preset, threshold, admission', [('RA', 1, True), ('B', 1, False), ('E5', 2, False),
+                                                        ('A0', 1, False), ('E1', 0, False)])
+def test_selection_presets_wire_actual_agent(preset, threshold, admission, monkeypatch):
+    from types import SimpleNamespace as NS
+    from nav_bases import vlfm_agent as mod
+    from nav_bases.vlfm_approach import ApproachDecision
+    from tools.run_instance_ablation import settings
+
+    for k, v in settings(preset, nav_base='vlfm', overrides={'INSTANCE_VERIFICATION_PROMPT': 'match_visible_evidence'}).items():
+        monkeypatch.setenv(k, v)
+    sensor = NS(HFOV=79, WIDTH=640, HEIGHT=480, POSITION=(0, .88, 0))
+    config = NS(ENVIRONMENT=NS(MAX_EPISODE_STEPS=1000, ATOMIC_ACTIONS=True),
+                SIMULATOR=NS(RGB_SENSOR=sensor, DEPTH_SENSOR=sensor))
+    monkeypatch.setattr(mod, 'build_policy_class', lambda: lambda **kw: NS(avs=None))
+    monkeypatch.setattr(mod, 'check_servers', lambda: None)
+    monkeypatch.setattr(mod.runtime, 'check_assets', lambda groups: None)
+    monkeypatch.setattr(mod, 'bypass_proxy_for_local_servers', lambda: None)
+    monkeypatch.setattr('utils.runtime_config.config_summary', lambda cfg: {})
+    monkeypatch.setattr('utils.log_utils.log_event', lambda *args, **kw: None)
+    monkeypatch.setattr('utils.model_client.get_model_client', lambda port: None)
+    stages = []
+
+    def verifier(client, rgb, boxes, category, attrs, log_context):
+        stages.append(log_context['stage'])
+        return ['yes']
+
+    monkeypatch.setattr('utils.instance_verifier.verify_candidate_decisions', verifier)
+    a = mod.VLFMNavAgent(config, NS(dataset='instancenav'))
+    a.obj_goal, a.goal_attributes = 'chair', {}
+    if preset == 'E1':
+        assert a.policy.avs is None
+        return
+    assert type(a.policy.avs) is (AVSDecision if preset == 'A0' else ApproachDecision)
+    candidate = Proposal([0, 0, 4, 4], cloud(1, 1), 2.)
+    for step in range(1, threshold + 1):
+        a.total_steps = step
+        accepted = a.policy.avs.select([candidate], None, a.policy.avs_context())
+        assert accepted == ([0] if step == threshold else [])
+    assert stages == ((['candidate_admission'] if admission else []) + ['goal_confirmation']) * threshold
+
+
 def test_depth_normalisation_matches_vlfm_sensor():
     from nav_bases.vlfm_agent import normalise_depth
     depth = np.array([[0.2, 0.5], [2.75, 9.0]], dtype=np.float32)[..., None]
@@ -84,11 +169,16 @@ def test_instancenav_targets_map_to_vlfm_classes():
 @pytest.mark.parametrize('env,ok', [
     ({'ENABLE_INSTANCE_CONFIRMATION': 'false'}, True),
     ({'ENABLE_CANDIDATE_APPROACH': 'false'}, True),
-    ({'ENABLE_CANDIDATE_APPROACH': 'true'}, False),
+    ({'ENABLE_CANDIDATE_APPROACH': 'true'}, True),
+    ({'ENABLE_CANDIDATE_APPROACH': 'true', 'VERIFY_BEFORE_CANDIDATE': 'true'}, True),
+    ({'ENABLE_CANDIDATE_APPROACH': 'true', 'INSTANCE_CONFIRMATION_THRESHOLD': '2',
+      'INSTANCE_CONFIRMATION_COUNT_UNIT': 'frame'}, True),
+    ({'ENABLE_CANDIDATE_APPROACH': 'true', 'INSTANCE_CONFIRMATION_THRESHOLD': '2',
+      'INSTANCE_CONFIRMATION_COUNT_UNIT': 'detection'}, False),
     ({'ENABLE_CANDIDATE_APPROACH': 'false', 'INSTANCE_CONFIRMATION_THRESHOLD': '2'}, False),
     ({'ENABLE_CANDIDATE_APPROACH': 'false', 'INSTANCE_REJECTION_POLICY': 'no'}, False),
 ])
-def test_vlfm_avs_settings_are_a0_only(env, ok):
+def test_vlfm_avs_supported_settings(env, ok):
     from nav_bases.vlfm_agent import validate_avs_settings
     keys = ['ENABLE_INSTANCE_CONFIRMATION', 'ENABLE_CANDIDATE_APPROACH', 'INSTANCE_CONFIRMATION_THRESHOLD',
             'INSTANCE_REJECTION_POLICY', 'VERIFY_BEFORE_CANDIDATE']
@@ -216,13 +306,13 @@ def test_ablation_launcher_nav_base():
     import sys
     sys.path.insert(0, str(ROOT / 'tools'))
     from run_instance_ablation import launch_command, settings
-    # PSG-Nav presets are unchanged: no NAV_BASE key, no --nav-base flag.
-    assert 'NAV_BASE' not in settings('A0') and '--nav-base' not in launch_command('A0', '0,1', 't')
+    # Old PSG-Nav manifests omit NAV_BASE; replaying a generated command is unambiguous.
+    assert 'NAV_BASE' not in settings('A0')
+    cmd = launch_command(settings('A0'), '0,1', 't')
+    assert cmd[cmd.index('--nav-base') + 1] == 'psgnav'
     assert settings('A0', nav_base='vlfm') == {**settings('A0'), 'NAV_BASE': 'vlfm'}
-    cmd = launch_command('E1', '0', 't', nav_base='vlfm')
+    cmd = launch_command(settings('E1', nav_base='vlfm'), '0', 't')
     assert cmd[cmd.index('--nav-base') + 1] == 'vlfm'
-    with pytest.raises(ValueError):
-        settings('B', nav_base='vlfm')
 
 
 def test_queue_scripts_parse_and_name_vlfm_runs():

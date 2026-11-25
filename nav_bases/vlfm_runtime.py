@@ -49,6 +49,45 @@ def sha256(path):
     return digest.hexdigest()
 
 
+def validate_avs_settings(dataset='instancenav'):
+    """Check the effective switches, not the preset name. No model or GPU imports."""
+    from configs.navigation_config import (
+        instance_collect_only_enabled, instance_confirmation_enabled, instance_confirmation_mode,
+        instance_confirmation_threshold, post_confirmation_contradiction_check_enabled,
+        preserve_positive_evidence_on_recovery_enabled, relative_evidence_enabled,
+        validate_instance_ablation, verify_before_candidate_enabled)
+
+    summary = validate_instance_ablation()
+    enabled = instance_confirmation_enabled()
+    requirements = {'RAG_MODE=0': os.environ.get('RAG_MODE', '0') == '0',
+                    'ENABLE_RELATIVE_EVIDENCE=false': not relative_evidence_enabled(),
+                    'INSTANCE_COLLECT_ONLY=false': not instance_collect_only_enabled()}
+    threshold, admission = instance_confirmation_threshold(), verify_before_candidate_enabled()
+    if enabled:
+        approach = summary['candidate_approach']
+        requirements.update({
+            'INSTANCE_CONFIRMATION_MODE=positive_match': instance_confirmation_mode() == 'positive_match',
+            'INSTANCE_REJECTION_POLICY=none': summary['rejection_policy'] == 'none',
+            'ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK=false': not post_confirmation_contradiction_check_enabled(),
+            'PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY=false': not preserve_positive_evidence_on_recovery_enabled(),
+        })
+        if approach:
+            requirements.update({
+                'InstanceNav for candidate approach': dataset == 'instancenav',
+                'INSTANCE_VERIFICATION_SCOPE=instance': summary['scope'] == 'instance',
+                'INSTANCE_CONFIRMATION_THRESHOLD=1 or 2': threshold in (1, 2),
+                'one confirmation for RA': not admission or threshold == 1,
+                'INSTANCE_CONFIRMATION_COUNT_UNIT=frame for E5': threshold == 1 or summary['count_unit'] == 'frame',
+            })
+        else:
+            requirements.update({'INSTANCE_CONFIRMATION_THRESHOLD=1': threshold == 1,
+                                 'VERIFY_BEFORE_CANDIDATE=false': not admission})
+    problems = [rule for rule, ok in requirements.items() if not ok]
+    if problems:
+        raise ValueError('NAV_BASE=vlfm requires ' + '; '.join(problems))
+    return dict(summary, avs=enabled, threshold=threshold, admission=admission)
+
+
 def activate():
     """Make only bundled packages visible. No conda activation, sibling paths or .pth files."""
     path = str(SOURCE)

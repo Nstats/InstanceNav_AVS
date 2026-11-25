@@ -72,11 +72,25 @@ VARIANTS = {
 # Model behind every call (exploration and verification), as run_instance100.sh --vlm accepts it.
 # The default keeps the existing presets unchanged; another VLM is a separate comparison batch.
 VLMS = ('qwen3.5-flash', 'gemini-2.5-flash', 'qwen3-vl-8b-instruct')
-# Object-navigation base (run_instance100.sh --nav-base). psgnav adds nothing to the settings
-# or the command, so every PSG-Nav preset, manifest and resume stays as it was. The VLFM base
-# implements original VLFM (E1: verification off) and VLFM + AVS A0 only.
+# Preserve the historical settings identity (missing NAV_BASE = PSG-Nav) for resume.
 NAV_BASES = ('psgnav', 'vlfm')
-VLFM_EXPERIMENTS = ('A0', 'E1')
+# Optional S6 flags are materialized when enabled, not added to historical A0 manifests.
+RELATIVE_OPTIONS = {
+    'RELATIVE_EVIDENCE_CALIBRATION': 'configs/relative_evidence_s6.json',
+    'RELATIVE_EVIDENCE_USE_U': 'true', 'RELATIVE_EVIDENCE_EARLY_STOP': 'true',
+    'RELATIVE_EVIDENCE_PAIRWISE': 'true', 'RELATIVE_EVIDENCE_DROP_REJECTED': 'true',
+}
+
+
+def flag(key):
+    return '--' + key.lower().replace('_', '-')
+
+
+def bool_value(value):
+    for canonical, aliases in [('true', ('true', '1', 'yes')), ('false', ('false', '0', 'no'))]:
+        if value.lower() in aliases:
+            return canonical
+    raise argparse.ArgumentTypeError('expected true/false/1/0/yes/no')
 
 
 def common(vlm=COMMON['VLM']):
@@ -85,20 +99,37 @@ def common(vlm=COMMON['VLM']):
     return {**COMMON, 'VLM': vlm}
 
 
-def settings(experiment, vlm=COMMON['VLM'], nav_base='psgnav'):
+def settings(experiment, vlm=COMMON['VLM'], nav_base='psgnav', overrides=None):
     if nav_base not in NAV_BASES:
         raise ValueError(f'nav base must be one of {", ".join(NAV_BASES)}')
-    if nav_base == 'psgnav':
-        return {**common(vlm), **VARIANTS[experiment]}
-    if experiment not in VLFM_EXPERIMENTS:
-        raise ValueError(f'nav base {nav_base} supports only {", ".join(VLFM_EXPERIMENTS)}')
-    return {**common(vlm), **VARIANTS[experiment], 'NAV_BASE': nav_base}
+    overrides = overrides or {}
+    resolved = {**common(vlm), **VARIANTS[experiment], **overrides}
+    if 'INSTANCE_VERIFICATION_PROMPT' in overrides and (
+            resolved['ENABLE_INSTANCE_CONFIRMATION'] != 'true'
+            or resolved['INSTANCE_CONFIRMATION_MODE'] != 'positive_match'
+            or resolved['INSTANCE_VERIFICATION_SCOPE'] != 'instance'):
+        print('Note: --instance-verification-prompt is inactive without positive_match instance verification',
+              file=sys.stderr)
+    if nav_base == 'vlfm':
+        # VLFM uses value-map exploration, not PSG-Nav's landmark/room filters.
+        for key in ('LANDMARK_COMPARISON_REPEATS', 'LANDMARK_COMPARISON_WORKERS',
+                    'ENABLE_INSTANCE_DESCRIPTION_FOR_EXPLORATION', 'ENABLE_OBJECT_RELATIONS',
+                    'ENABLE_GROUP_LLM_FILTER', 'ENABLE_ROOM_LLM_FILTER'):
+            if key in overrides and resolved[key] != COMMON[key]:
+                raise ValueError(f'{flag(key)} changes PSG-Nav exploration, not VLFM')
+    if resolved['ENABLE_RELATIVE_EVIDENCE'] == 'true':
+        resolved = {**RELATIVE_OPTIONS, **resolved}
+    if nav_base != 'psgnav':
+        resolved['NAV_BASE'] = nav_base
+    return resolved
 
 
-def launch_command(experiment, gpus, timestamp=None, resume=False, vlm=COMMON['VLM'], nav_base='psgnav'):
+def launch_command(resolved, gpus, timestamp=None, resume=False):
     cmd = ['bash', str(ROOT / 'scripts/run_instance100.sh')]
-    for key, value in settings(experiment, vlm, nav_base).items():
-        cmd.extend(['--' + key.lower().replace('_', '-'), value])
+    for key, value in resolved.items():
+        cmd.extend([flag(key), value])
+    if 'NAV_BASE' not in resolved:
+        cmd.extend(['--nav-base', 'psgnav'])
     cmd.extend(['--gpus', gpus])
     if timestamp:
         cmd.extend(['--timestamp', timestamp])
@@ -162,22 +193,24 @@ def _suite_core(suite_path, suite):
     return None
 
 
-def archive_run(args, cmd, directory, inventory):
+def archive_run(args, resolved, cmd, directory, inventory):
     paths, hashes, submodules, digest = inventory
     core = core_digest(hashes, submodules)
     manifest_path = directory / 'manifest.json'
     python = str(Path(sys.executable).resolve())
-    # What defines a run: the experiment, its settings and the algorithm core. GPUs, the
-    # interpreter path and non-core files may differ between machines and resumes.
-    identity = {'experiment': args.experiment,
-                'settings': settings(args.experiment, args.vlm, getattr(args, 'nav_base', 'psgnav')),
-                'timestamp': args.timestamp}
+    # Keep the originating preset for provenance, but compare the actual settings:
+    # an alias with the same final values describes the same run.
+    identity = {'experiment': args.experiment, 'settings': resolved, 'timestamp': args.timestamp,
+                'dataset': 'instancenav', 'nav_base': resolved.get('NAV_BASE', 'psgnav')}
     if args.resume:
         if not manifest_path.is_file():
             raise ValueError('Resume requires this launcher\'s original manifest')
         prior = json.loads(manifest_path.read_text())
-        if any(prior.get(k) != v for k, v in identity.items()):
-            raise ValueError('Resume experiment/settings changed; restore the original run settings')
+        # Older manifests encode the base only inside settings (absent = PSG-Nav).
+        if (prior.get('settings') != resolved or prior.get('timestamp') != args.timestamp
+                or prior.get('dataset', 'instancenav') != identity['dataset']
+                or prior.get('nav_base', identity['nav_base']) != identity['nav_base']):
+            raise ValueError('Resume settings changed; restore the original run settings')
         if _manifest_core(prior) != core:
             raise ValueError('Resume algorithm core changed (PSG_Nav.py, utils/, configs/, graph/, '
                              'task subset or submodules); restore it to resume this run')
@@ -210,8 +243,8 @@ def archive_run(args, cmd, directory, inventory):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('experiment', choices=VARIANTS)
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument('experiment', choices=VARIANTS, help='starting preset; explicit navigation flags override it')
     parser.add_argument('--gpus', default='0,1')
     parser.add_argument('--timestamp')
     parser.add_argument('--suite', default='avs5_20261110')
@@ -219,7 +252,14 @@ def main():
     parser.add_argument('--vlm', default=COMMON['VLM'], choices=VLMS,
                         help='model for all calls; part of the run settings and the suite identity')
     parser.add_argument('--nav-base', default='psgnav', choices=NAV_BASES,
-                        help='object-navigation base; vlfm runs A0 (VLFM + AVS) or E1 (original VLFM)')
+                        help='navigation base; VLFM checks its capabilities against the final flags')
+    switches = {**COMMON, **RELATIVE_OPTIONS}
+    del switches['VLM']  # already handled above, including suite identity
+    group = parser.add_argument_group('navigation overrides (applied after the preset)')
+    for key, default in switches.items():
+        value_type = bool_value if default in ('true', 'false') else (
+            str if key == 'RELATIVE_EVIDENCE_CALIBRATION' else str.lower)
+        group.add_argument(flag(key), dest=key, type=value_type, metavar='VALUE')
     parser.add_argument('--check-only', action='store_true')
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
@@ -231,23 +271,28 @@ def main():
         parser.error('--gpus requires one or more distinct IDs, e.g. 0 or 0,1')
     if not args.timestamp and (args.resume or not (args.check_only or args.dry_run)):
         parser.error('--timestamp is required for evaluation/resume')
-    if args.nav_base != 'psgnav' and args.experiment not in VLFM_EXPERIMENTS:
-        parser.error(f'--nav-base {args.nav_base} supports only {", ".join(VLFM_EXPERIMENTS)}')
-    cmd = launch_command(args.experiment, args.gpus, args.timestamp, args.resume, args.vlm, args.nav_base)
-    if args.dry_run:
-        print(json.dumps({'experiment': args.experiment, 'settings': settings(args.experiment, args.vlm, args.nav_base),
-                          'command': cmd}, indent=2))
-        return 0
-    env = {**os.environ, **settings(args.experiment, args.vlm, args.nav_base), 'PSGNAV_PYTHON': sys.executable,
+    overrides = {key: getattr(args, key) for key in switches if getattr(args, key) is not None}
+    resolved = settings(args.experiment, args.vlm, args.nav_base, overrides)
+    cmd = launch_command(resolved, args.gpus, args.timestamp, args.resume)
+    env = {**os.environ, **resolved, 'PSGNAV_PYTHON': sys.executable,
            'NAV_BASE': args.nav_base, 'INSTANCE_ABLATION_ID': args.experiment}
     for legacy in ('ENABLE_CONTRADICTION_CHECK', 'ENABLE_INSTANCE_CONFIRMATION_BEFORE_FIND_GOAL'):
         env.pop(legacy, None)
+    if args.dry_run:
+        result = subprocess.run([*cmd, '--validate-settings-only'], env=env, cwd=ROOT)
+        if result.returncode:
+            return result.returncode
+        print(json.dumps({'experiment': args.experiment, 'dataset': 'instancenav', 'nav_base': args.nav_base,
+                          'settings': resolved, 'command': cmd}, indent=2))
+        return 0
     print('Experiment:', args.experiment, '\nCommand:', shlex.join(cmd), flush=True)
     result = subprocess.run([*cmd, '--check-only'], env=env, cwd=ROOT)
     if result.returncode or args.check_only:
         return result.returncode
     directory = ROOT / 'outputs/instance_ablation_runs' / args.suite / args.timestamp
-    manifest = archive_run(args, cmd, directory, source_inventory(args.nav_base))
+    manifest = archive_run(args, resolved, cmd, directory, source_inventory(args.nav_base))
+    if args.resume:
+        env['INSTANCE_ABLATION_ID'] = json.loads(manifest.read_text())['experiment']
     env['INSTANCE_ABLATION_MANIFEST'] = str(manifest)
     print('Manifest:', manifest, flush=True)
     os.chdir(ROOT)

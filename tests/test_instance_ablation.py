@@ -1,4 +1,6 @@
 import json
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -196,8 +198,73 @@ def test_fixed_presets_differ_only_by_planned_variable():
     assert set(expected) | {'B'} == set(launcher_variants())
     for experiment, diff in expected.items():
         assert {k: v for k, v in settings(experiment).items() if v != base[k]} == diff
-        cmd = launch_command(experiment, '2,3', 'trial', True)
+        cmd = launch_command(settings(experiment), '2,3', 'trial', True)
         assert '--resume' in cmd and '--gpus' in cmd
+
+
+def dry_run(*args):
+    root = Path(__file__).resolve().parents[1]
+    return subprocess.run([sys.executable, 'tools/run_instance_ablation.py', *args, '--dry-run'],
+                          cwd=root, text=True, capture_output=True)
+
+
+@pytest.mark.parametrize('base', ['psgnav', 'vlfm'])
+def test_alias_and_explicit_override_have_identical_effective_command(base):
+    configs = []
+    for options in [('A0VisibleEvidence',), ('A0', '--instance-verification-prompt', 'MATCH_VISIBLE_EVIDENCE'),
+                    ('B', '--enable-candidate-approach', 'NO', '--instance-verification-prompt', 'match_visible_evidence')]:
+        result = dry_run(*options, '--nav-base', base)
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload['nav_base'] == base and payload['dataset'] == 'instancenav'
+        assert payload['settings']['INSTANCE_VERIFICATION_PROMPT'] == 'match_visible_evidence'
+        assert payload['settings']['ENABLE_CANDIDATE_APPROACH'] == 'false'
+        assert payload['settings']['ENABLE_INSTANCE_CONFIRMATION'] == 'true'
+        configs.append((payload['settings'], payload['command']))
+    assert configs[0] == configs[1] == configs[2]
+    assert json.loads(dry_run('A0', '--nav-base', base).stdout)['settings']['INSTANCE_VERIFICATION_PROMPT'] == 'match_strict_no'
+
+
+@pytest.mark.parametrize('options,error', [
+    (('RA', '--nav-base', 'vlfm', '--instance-confirmation-threshold', '2'), 'one confirmation for RA'),
+    (('A0', '--nav-base', 'vlfm', '--instance-confirmation-threshold', '2'), 'INSTANCE_CONFIRMATION_THRESHOLD=1'),
+    (('A0', '--instance-verification-prompt', 'typo'), 'INSTANCE_VERIFICATION_PROMPT'),
+    (('A0', '--instance-confirmation-threshold', '0'), 'positive integer'),
+    (('A0', '--nav-base', 'vlfm', '--landmark-comparison-workers', '2'), 'PSG-Nav exploration'),
+])
+def test_invalid_final_settings_fail_in_dry_run(options, error):
+    result = dry_run(*options)
+    assert result.returncode and error in result.stderr
+
+
+def test_disabled_verifier_keeps_baseline_but_reports_inactive_prompt():
+    result = dry_run('E1', '--instance-verification-prompt', 'match_visible_evidence')
+    assert result.returncode == 0 and 'inactive' in result.stderr
+    assert json.loads(result.stdout)['settings']['ENABLE_INSTANCE_CONFIRMATION'] == 'false'
+
+
+def test_manifest_uses_final_settings_and_resumes_equivalent_alias(tmp_path, monkeypatch):
+    import tools.run_instance_ablation as launcher
+    monkeypatch.setattr(launcher, 'ROOT', tmp_path)
+    monkeypatch.setattr(launcher.subprocess, 'check_output', lambda *a, **k: b'test-head')
+    args = SimpleNamespace(experiment='A0', vlm='qwen3.5-flash', gpus='0', suite='s', timestamp='r', resume=False)
+    dest = tmp_path / 'outputs/instance_ablation_runs/s/r'
+    inventory = ([], {}, '', 'digest')
+    resolved = settings('A0', nav_base='vlfm', overrides={'INSTANCE_VERIFICATION_PROMPT': 'match_visible_evidence'})
+    cmd = launch_command(resolved, args.gpus, args.timestamp)
+    path = archive_run(args, resolved, cmd, dest, inventory)
+    manifest = json.loads(path.read_text())
+    assert manifest['settings'] == resolved and manifest['command'] == cmd
+    assert (manifest['dataset'], manifest['nav_base']) == ('instancenav', 'vlfm')
+    args.resume = True
+    with pytest.raises(ValueError, match='Resume settings'):
+        archive_run(args, settings('A0', nav_base='vlfm'), cmd, dest, inventory)
+    args.experiment = 'A0VisibleEvidence'
+    assert archive_run(args, settings(args.experiment, nav_base='vlfm'), cmd, dest, inventory) == path
+
+
+def archive_preset(args, cmd, directory, inventory):
+    return archive_run(args, settings(args.experiment, args.vlm), cmd, directory, inventory)
 
 
 def test_manifest_blocks_mixed_sources_and_mismatched_resume(tmp_path, monkeypatch):
@@ -209,30 +276,30 @@ def test_manifest_blocks_mixed_sources_and_mismatched_resume(tmp_path, monkeypat
     args = SimpleNamespace(experiment='E3', gpus='0,1', timestamp='trial', suite='suite', resume=False,
                            vlm='qwen3.5-flash')
     directory = tmp_path / 'outputs/instance_ablation_runs/suite/trial'
-    path = archive_run(args, ['bash'], directory, inventory)
+    path = archive_preset(args, ['bash'], directory, inventory)
     assert path.exists() and (directory / 'source.tar.gz').exists()
     args.resume = True
-    assert archive_run(args, ['bash'], directory, inventory) == path
+    assert archive_preset(args, ['bash'], directory, inventory) == path
     # Resuming on another GPU set, or after a non-core file changed, is allowed.
     args.gpus = '0'
-    assert archive_run(args, ['bash'], directory,
+    assert archive_preset(args, ['bash'], directory,
                        (inventory[0], {**inventory[1], 'source.py': 'x'}, '', 'other')) == path
     with pytest.raises(ValueError, match='Resume algorithm core'):
-        archive_run(args, ['bash'], directory, (inventory[0], {**inventory[1], 'utils/core.py': 'x'}, '', 'other'))
+        archive_preset(args, ['bash'], directory, (inventory[0], {**inventory[1], 'utils/core.py': 'x'}, '', 'other'))
     args.experiment = 'E4'
     with pytest.raises(ValueError, match='Resume'):
-        archive_run(args, ['bash'], directory, inventory)
+        archive_preset(args, ['bash'], directory, inventory)
     args.resume, args.timestamp = False, 'second'
     # A non-core change (launcher, tools, environment file) keeps the suite usable.
-    second = archive_run(args, ['bash'], directory.parent / 'second',
+    second = archive_preset(args, ['bash'], directory.parent / 'second',
                          (inventory[0], {**inventory[1], 'source.py': 'changed'}, '', 'changed'))
     assert json.loads(second.read_text())['source_digest'] == 'changed'
     args.timestamp = 'third'
     with pytest.raises(ValueError, match='Suite algorithm core'):
-        archive_run(args, ['bash'], directory.parent / 'third',
+        archive_preset(args, ['bash'], directory.parent / 'third',
                     (inventory[0], {**inventory[1], 'utils/core.py': 'changed'}, '', 'changed'))
     with pytest.raises(ValueError, match='Suite algorithm core'):
-        archive_run(args, ['bash'], directory.parent / 'third', (*inventory[:2], 'submodule moved', 'x'))
+        archive_preset(args, ['bash'], directory.parent / 'third', (*inventory[:2], 'submodule moved', 'x'))
 
 
 def test_suites_without_core_digest_use_their_manifests(tmp_path, monkeypatch):
@@ -248,10 +315,10 @@ def test_suites_without_core_digest_use_their_manifests(tmp_path, monkeypatch):
     args = SimpleNamespace(experiment='A0', gpus='0', timestamp='new', suite='old', resume=False,
                            vlm='qwen3.5-flash')
     synced = {**hashes, 'environment.yml': 'other machine', 'tools/x.py': 'edited'}
-    assert archive_run(args, ['bash'], suite / 'new', ([], synced, '', 'different')).exists()
+    assert archive_preset(args, ['bash'], suite / 'new', ([], synced, '', 'different')).exists()
     args.timestamp = 'newer'
     with pytest.raises(ValueError, match='Suite algorithm core'):
-        archive_run(args, ['bash'], suite / 'newer', ([], {**hashes, 'PSG_Nav.py': 'edited'}, '', 'x'))
+        archive_preset(args, ['bash'], suite / 'newer', ([], {**hashes, 'PSG_Nav.py': 'edited'}, '', 'x'))
 
 
 def test_queue_script_edits_do_not_change_source_fingerprint(tmp_path, monkeypatch):
@@ -281,9 +348,10 @@ def test_vlm_changes_only_the_model_and_the_suite_identity(tmp_path, monkeypatch
     small = settings('B', 'qwen3-vl-8b-instruct')
     assert {k: v for k, v in small.items() if v != base[k]} == {'VLM': 'qwen3-vl-8b-instruct'}
     assert settings('E4', 'qwen3-vl-8b-instruct')['INSTANCE_REJECTION_POLICY'] == 'non_yes'
-    cmd = launch_command('E1', '0,1', 'trial', vlm='qwen3-vl-8b-instruct')
+    cmd = launch_command(settings('E1', 'qwen3-vl-8b-instruct'), '0,1', 'trial')
     assert cmd[cmd.index('--vlm') + 1] == 'qwen3-vl-8b-instruct'
-    assert launch_command('B', '0,1', 'trial')[launch_command('B', '0,1', 'trial').index('--vlm') + 1] == 'qwen3.5-flash'
+    cmd = launch_command(settings('B'), '0,1', 'trial')
+    assert cmd[cmd.index('--vlm') + 1] == 'qwen3.5-flash'
     with pytest.raises(ValueError, match='VLM'):
         settings('B', 'unknown-model')
     # A suite started with one VLM refuses runs with another, even with identical source.
@@ -294,8 +362,8 @@ def test_vlm_changes_only_the_model_and_the_suite_identity(tmp_path, monkeypatch
     args = SimpleNamespace(experiment='B', gpus='0,1', timestamp='first', suite='suite', resume=False,
                            vlm='qwen3-vl-8b-instruct')
     runs = tmp_path / 'outputs/instance_ablation_runs/suite'
-    manifest = json.loads(archive_run(args, ['bash'], runs / 'first', inventory).read_text())
+    manifest = json.loads(archive_preset(args, ['bash'], runs / 'first', inventory).read_text())
     assert manifest['settings']['VLM'] == 'qwen3-vl-8b-instruct'
     args.timestamp, args.vlm = 'second', 'qwen3.5-flash'
     with pytest.raises(ValueError, match='Suite common settings'):
-        archive_run(args, ['bash'], runs / 'second', inventory)
+        archive_preset(args, ['bash'], runs / 'second', inventory)

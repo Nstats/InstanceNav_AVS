@@ -24,8 +24,8 @@ that text as its only class); the full CoIN instruction is used only by AVS.
 ENABLE_INSTANCE_CONFIRMATION=false runs VLFM unchanged (category detection decides the
 goal). true adds AVS (nav_bases/avs_decision.py): only a detection the VLM confirms
 from within 4 m may enter the target map. Only detections VLFM itself would keep as
-a target are verified (vlfm_range_ids): VLFM finds the category, AVS decides the instance. Exploration (value map prompt, frontiers) is
-VLFM's in both cases. Nothing here is imported by PSG_Nav.py.
+a target are verified (vlfm_range_ids): VLFM finds the category, AVS decides the instance. A0 explores via VLFM's value map and frontiers;
+InstanceNav B/RA/E5 can temporarily approach candidates before this commit. Nothing here is imported by PSG_Nav.py.
 """
 import os
 import sys
@@ -35,6 +35,7 @@ import numpy as np
 import torch
 
 from nav_bases import vlfm_runtime as runtime
+from nav_bases.vlfm_runtime import validate_avs_settings
 
 ROOT = runtime.ROOT
 POINTNAV_WEIGHTS = runtime.asset_path(runtime.POINTNAV)
@@ -138,33 +139,49 @@ def vlfm_range_ids(offset, forward_depth_m, max_depth):
     return ids
 
 
-def validate_avs_settings():
-    """The VLFM base implements A0 AVS only; refuse settings it would silently ignore."""
-    from configs.navigation_config import (
-        candidate_approach_enabled, instance_collect_only_enabled, instance_confirmation_enabled,
-        instance_confirmation_mode, instance_confirmation_threshold, instance_rejection_policy,
-        post_confirmation_contradiction_check_enabled, relative_evidence_enabled,
-        validate_instance_ablation, verify_before_candidate_enabled)
-    summary = validate_instance_ablation()
-    if not instance_confirmation_enabled():
-        return dict(summary, avs=False)
-    problems = []
-    if instance_confirmation_mode() != 'positive_match':
-        problems.append('INSTANCE_CONFIRMATION_MODE=positive_match')
-    if instance_confirmation_threshold() != 1:
-        problems.append('INSTANCE_CONFIRMATION_THRESHOLD=1')
-    if candidate_approach_enabled():
-        problems.append('ENABLE_CANDIDATE_APPROACH=false (A0)')
-    if instance_rejection_policy() != 'none':
-        problems.append('INSTANCE_REJECTION_POLICY=none')
-    if verify_before_candidate_enabled():
-        problems.append('VERIFY_BEFORE_CANDIDATE=false')
-    if (instance_collect_only_enabled() or relative_evidence_enabled()
-            or post_confirmation_contradiction_check_enabled()):
-        problems.append('collect-only, relative evidence and post check disabled')
-    if problems:
-        raise ValueError('NAV_BASE=vlfm with instance confirmation needs ' + '; '.join(problems))
-    return dict(summary, avs=True)
+class _CandidateApproachExploration:
+    """VLFM explores normally unless AVS has an unconfirmed waypoint (B/RA/E5)."""
+
+    def _reset(self):
+        super()._reset()
+        self._last_approach_xy = None
+        self._stationary_approach_steps = 0
+
+    def _explore(self, observations):
+        # Called by VLFM only after initialization, and only without a confirmed map goal.
+        goal = getattr(self.avs, 'approach_goal', None)
+        if goal is None:
+            self._last_approach_xy = None
+            self._stationary_approach_steps = 0
+            return super()._explore(observations)
+        robot = self._observations_cache['robot_xy']
+        previous = getattr(self, '_last_approach_xy', None)
+        self._stationary_approach_steps = (self._stationary_approach_steps + 1 if previous is not None
+                                           and np.linalg.norm(robot - previous) < 0.05 else 0)
+        self._last_approach_xy = robot.copy()
+        context = self.avs_context()
+        if np.linalg.norm(robot - goal) <= self._pointnav_stop_radius:
+            reason = 'reached'
+        elif self._stationary_approach_steps >= 12:
+            reason = 'stuck'
+        else:
+            action = self._pointnav(goal, stop=False)
+            if action.item() != self._stop_action.item():
+                from utils.instance_verifier import log_instance_verification
+                log_instance_verification('vlfm_approach_action', context=context,
+                                          goal_xy=goal.tolist(), action=int(action.item()))
+                return action
+            reason = 'pointnav_stop'
+        # A provisional waypoint cannot stop the episode. Discard the provisional
+        # controller state (including its unexecuted STOP) before a frontier step.
+        self.avs.release_approach(reason, context)
+        self._pointnav_policy.reset()
+        self._policy_info.pop('rho_theta', None)
+        self._last_approach_xy = None
+        self._stationary_approach_steps = 0
+        return super()._explore(observations)
+
+
 def build_policy_class():
     """ITMPolicyV2 with VLFM's HabitatMixin behaviour, for numpy observations."""
     ITMPolicyV2 = import_vlfm()
@@ -174,7 +191,7 @@ def build_policy_class():
 
     from nav_bases.avs_decision import Proposal
 
-    class VLFMPolicy(ITMPolicyV2):
+    class VLFMPolicy(_CandidateApproachExploration, ITMPolicyV2):
         _stop_action = torch.tensor([[0]], dtype=torch.long)
         _turn_left = torch.tensor([[2]], dtype=torch.long)
 
@@ -305,7 +322,7 @@ class VLFMNavAgent:
         self.max_episode_steps = int(task_config.ENVIRONMENT.MAX_EPISODE_STEPS)
         if not bool(getattr(task_config.ENVIRONMENT, 'ATOMIC_ACTIONS', False)):
             raise ValueError('The VLFM base counts atomic actions; set ENVIRONMENT.ATOMIC_ACTIONS True')
-        self.avs_settings = validate_avs_settings()
+        self.avs_settings = validate_avs_settings(self.dataset)
         self.distance_threshold = 4
         sim = task_config.SIMULATOR
         rgb, depth = sim.RGB_SENSOR, sim.DEPTH_SENSOR
@@ -349,8 +366,14 @@ class VLFMNavAgent:
             from utils.instance_verifier import log_instance_verification
             from utils.model_client import get_model_client
             self.model_client = get_model_client(getattr(args, 'server_port', None))
-            self.policy.avs = AVSDecision(self._verify, distance_threshold=self.distance_threshold,
-                                          log=log_instance_verification)
+            if self.avs_settings['candidate_approach']:
+                from nav_bases.vlfm_approach import ApproachDecision
+                self.policy.avs = ApproachDecision(self._verify, distance_threshold=self.distance_threshold,
+                                                   admission=self.avs_settings['admission'],
+                                                   threshold=self.avs_settings['threshold'], log=log_instance_verification)
+            else:
+                self.policy.avs = AVSDecision(self._verify, distance_threshold=self.distance_threshold,
+                                              log=log_instance_verification)
             self.policy.avs_context = self._log_context
         print(f'[VLFM base] avs={self.avs_settings["avs"]} settings={settings} '
               f'rgb_pixel_map={"coin" if rgb_pixel_map is not None else "identity"}', flush=True)

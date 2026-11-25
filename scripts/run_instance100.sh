@@ -66,11 +66,12 @@ unset ENABLE_INSTANCE_CONFIRMATION_BEFORE_FIND_GOAL
 #   qwen3-vl-8b-instruct：走硅基流动，模型名为 Qwen/Qwen3-VL-8B-Instruct，凭据是 SILICONFLOW_API_KEY。
 : "${VLM:=qwen3.5-flash}"  # --vlm
 # 物体导航底座 (--nav-base)：psgnav（默认，运行 PSG_Nav.py，行为不变）或 vlfm（运行 VLFM_Nav.py）。
-#   vlfm 需先启动 scripts/launch_vlfm_servers.sh；实例核验开启时须 --enable-candidate-approach false（A0）。
+#   vlfm 需先启动 scripts/launch_vlfm_servers.sh；支持 A0、B、RA 和按帧两票的 E5。
 : "${NAV_BASE:=psgnav}"  # --nav-base
 
 # 0: preflight then navigate. --check-only sets 1 and exits after validation.
 check_only=0
+settings_only=0  # Used by the preset launcher's --dry-run (no assets, torch or API).
 passthrough=()
 user_timestamp=""
 gpu_list=""
@@ -109,7 +110,7 @@ Options:
                                     positive_match (default) or contradiction
                                     Select the primary instance confirmation policy
   --instance-verification-prompt NAME
-                                    match | match_strict_no (default) | match_visible_evidence
+                                    match | match_strict_no (default) | match_visible_evidence | match_context_optional
                                     match_visible_evidence keeps strict_no and requires visible
                                     evidence from the description to identify the instance
   --instance-verification-scope NAME
@@ -137,8 +138,7 @@ Options:
                                     Data collection only: log intended locks, never stop early
                                     Requires positive_match, instance confirmation, no post check
   --nav-base NAME                   psgnav (default, PSG_Nav.py) or vlfm (VLFM_Nav.py; needs
-                                    scripts/launch_vlfm_servers.sh; with instance confirmation
-                                    on it requires --enable-candidate-approach false)
+                                    scripts/launch_vlfm_servers.sh; supports A0, B, RA, E5)
   --timestamp NAME                  Result directory id; required again with --resume
   --enable-relative-evidence BOOL   Relative-evidence stopping and candidate comparison (default: false)
   --relative-evidence-calibration PATH
@@ -202,6 +202,10 @@ normalize_bool_var() {
 
 while (( $# > 0 )); do
   case "$1" in
+    --validate-settings-only)
+      settings_only=1
+      shift
+      ;;
     --check-only)
       check_only=1
       shift
@@ -364,10 +368,7 @@ case "$INSTANCE_CONFIRMATION_MODE" in
   *) echo 'INSTANCE_CONFIRMATION_MODE must be positive_match or contradiction' >&2; exit 2 ;;
 esac
 INSTANCE_VERIFICATION_PROMPT="${INSTANCE_VERIFICATION_PROMPT,,}"
-case "$INSTANCE_VERIFICATION_PROMPT" in
-  match|match_strict_no|match_visible_evidence) ;;
-  *) echo 'INSTANCE_VERIFICATION_PROMPT must be match, match_strict_no or match_visible_evidence' >&2; exit 2 ;;
-esac
+# Validate the name against the verifier's registry in the Python settings check below.
 normalize_bool_var ENABLE_POST_CONFIRMATION_CONTRADICTION_CHECK
 normalize_bool_var PRESERVE_POSITIVE_EVIDENCE_ON_RECOVERY
 normalize_bool_var INSTANCE_COLLECT_ONLY
@@ -498,6 +499,22 @@ if [[ ! -x "$psgnav_python" ]]; then
   echo '请先按 DEPLOYMENT_ZH.md 配置 Python 环境，再通过 PSGNAV_PYTHON 指定解释器。' >&2
   exit 1
 fi
+# Used identically by dry-run, preflight and execution; never consult a preset name.
+"$psgnav_python" - <<'PY'
+import os, sys
+from configs.navigation_config import instance_verification_prompt, validate_instance_ablation, validate_relative_evidence
+try:
+    instance_verification_prompt()
+    validate_relative_evidence(dataset='instancenav', backend=os.environ['PSGNAV_MODEL_BACKEND'])
+    if os.environ['NAV_BASE'] == 'vlfm':
+        from nav_bases.vlfm_runtime import validate_avs_settings
+        validate_avs_settings()
+    else:
+        validate_instance_ablation()
+except ValueError as exc:
+    sys.exit(str(exc))
+PY
+if (( settings_only )); then exit 0; fi
 relative_evidence_header='{"enabled":false}'
 if [[ "$ENABLE_RELATIVE_EVIDENCE" == true ]]; then
   relative_evidence_header="$("$psgnav_python" - <<'PY'
@@ -508,8 +525,6 @@ PY
 )"
 fi
 "$psgnav_python" - <<'PY'
-from configs.navigation_config import validate_instance_ablation
-validate_instance_ablation()
 import inspect, torch
 if 'weights_only' not in inspect.signature(torch.load).parameters:
     raise SystemExit('当前 Torch 不支持本版使用的 weights_only 参数；请使用复现指南中的 PyTorch 2.7 环境。')
